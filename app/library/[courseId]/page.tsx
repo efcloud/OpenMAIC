@@ -2,39 +2,27 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, GripVertical, Play, Trash2, Plus } from 'lucide-react';
-import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core';
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { motion } from 'motion/react';
+import { ArrowLeft, Plus } from 'lucide-react';
+import { nanoid } from 'nanoid';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
 import { listStages, type StageListItem } from '@/lib/utils/stage-storage';
+import { flattenLessons } from '@/lib/utils/course-tree-ops';
+import { TreeEditor } from '@/components/library/tree-editor';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('CourseDetail');
-
-interface LessonMeta {
-  stageId: string;
-  name: string;
-  sceneCount: number;
-}
 
 export default function CourseDetailPage() {
   const router = useRouter();
   const params = useParams();
   const courseId = params?.courseId as string;
 
-  const courses = useCourseLibraryStore((s) => s.courses);
-  const course = useMemo(
-    () => courses.find((c) => c.id === courseId),
-    [courses, courseId],
+  const trees = useCourseLibraryStore((s) => s.trees);
+  const tree = useMemo(
+    () => trees.find((t) => t.id === courseId),
+    [trees, courseId],
   );
 
   const [stages, setStages] = useState<StageListItem[]>([]);
@@ -42,7 +30,7 @@ export default function CourseDetailPage() {
 
   // Load store + stages
   useEffect(() => {
-    useCourseLibraryStore.getState().loadCourses();
+    useCourseLibraryStore.getState().loadTrees();
 
     listStages()
       .then((list) => {
@@ -55,59 +43,68 @@ export default function CourseDetailPage() {
       });
   }, []);
 
-  // Build lesson metadata from stages
-  const lessonMetas = useMemo<LessonMeta[]>(() => {
-    if (!course) return [];
-    const stageMap = new Map(stages.map((s) => [s.id, s]));
-    return course.lessons.map((lesson) => {
-      const stage = stageMap.get(lesson.stageId);
-      return {
-        stageId: lesson.stageId,
-        name: stage?.name ?? lesson.stageId,
-        sceneCount: stage?.sceneCount ?? 0,
-      };
-    });
-  }, [course, stages]);
+  // Build stageNames map
+  const stageNames = useMemo<Map<string, { name: string; sceneCount: number }>>(() => {
+    const map = new Map<string, { name: string; sceneCount: number }>();
+    for (const s of stages) {
+      map.set(s.id, { name: s.name, sceneCount: s.sceneCount });
+    }
+    return map;
+  }, [stages]);
 
-  // Unassigned stages (not in any course)
+  // Unassigned stages: not used in any tree
   const unassignedStages = useMemo(() => {
     const assignedIds = new Set<string>();
-    for (const c of courses) {
-      for (const lesson of c.lessons) {
+    for (const t of trees) {
+      const lessons = flattenLessons(t.root);
+      for (const lesson of lessons) {
         assignedIds.add(lesson.stageId);
       }
     }
     return stages.filter((s) => !assignedIds.has(s.id));
-  }, [courses, stages]);
+  }, [trees, stages]);
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id || !course) return;
+  // Available stages for adding to this tree: anything not already in THIS tree
+  const availableStages = useMemo(() => {
+    if (!tree) return [];
+    const assignedInTree = new Set(
+      flattenLessons(tree.root).map((l) => l.stageId),
+    );
+    return stages
+      .filter((s) => !assignedInTree.has(s.id))
+      .map((s) => ({ id: s.id, name: s.name, sceneCount: s.sceneCount }));
+  }, [tree, stages]);
 
-      const oldIndex = course.lessons.findIndex((l) => l.stageId === active.id);
-      const newIndex = course.lessons.findIndex((l) => l.stageId === over.id);
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const reordered = arrayMove(
-        course.lessons.map((l) => l.stageId),
-        oldIndex,
-        newIndex,
-      );
-      useCourseLibraryStore.getState().reorderLessons(courseId, reordered);
+  const handleAddLesson = useCallback(
+    (stageId: string) => {
+      if (!tree) return;
+      const meta = stageNames.get(stageId);
+      const node = {
+        id: nanoid(),
+        type: 'lesson' as const,
+        title: meta?.name ?? 'Untitled Lesson',
+        order: tree.root.children?.length ?? 0,
+        stageId,
+      };
+      useCourseLibraryStore.getState().addNode(courseId, tree.root.id, node);
     },
-    [course, courseId],
+    [tree, courseId, stageNames],
   );
 
-  const handleAddLesson = (stageId: string) => {
-    useCourseLibraryStore.getState().addLesson(courseId, stageId);
-  };
+  const handleEnterLesson = useCallback(
+    (stageId: string) => {
+      router.push(`/classroom/${stageId}`);
+    },
+    [router],
+  );
 
-  const handleRemoveLesson = (stageId: string) => {
-    useCourseLibraryStore.getState().removeLesson(courseId, stageId);
-  };
+  // Lesson count for header
+  const lessonCount = useMemo(() => {
+    if (!tree) return 0;
+    return flattenLessons(tree.root).length;
+  }, [tree]);
 
-  if (!course) {
+  if (!tree) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
         <div className="text-center">
@@ -142,46 +139,29 @@ export default function CourseDetailPage() {
           </Button>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-foreground tracking-tight truncate">
-              {course.name}
+              {tree.name}
             </h1>
-            {course.description && (
+            {tree.description && (
               <p className="text-sm text-muted-foreground/60 mt-1 line-clamp-2">
-                {course.description}
+                {tree.description}
               </p>
             )}
             <p className="text-xs text-muted-foreground/40 mt-1.5">
-              {course.lessons.length} lesson{course.lessons.length !== 1 ? 's' : ''}
+              {lessonCount} lesson{lessonCount !== 1 ? 's' : ''}
             </p>
           </div>
         </div>
 
-        {/* Lesson List with DnD */}
-        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext
-            items={course.lessons.map((l) => l.stageId)}
-            strategy={verticalListSortingStrategy}
-          >
-            <div className="space-y-2">
-              {lessonMetas.length === 0 ? (
-                <div className="py-12 text-center text-sm text-muted-foreground/50">
-                  No lessons yet. Add classrooms from below.
-                </div>
-              ) : (
-                lessonMetas.map((meta, index) => (
-                  <LessonCard
-                    key={meta.stageId}
-                    meta={meta}
-                    index={index}
-                    onEnter={() => router.push(`/classroom/${meta.stageId}`)}
-                    onRemove={() => handleRemoveLesson(meta.stageId)}
-                  />
-                ))
-              )}
-            </div>
-          </SortableContext>
-        </DndContext>
+        {/* Tree Editor */}
+        <TreeEditor
+          treeId={courseId}
+          root={tree.root}
+          stageNames={stageNames}
+          availableStages={availableStages}
+          onEnterLesson={handleEnterLesson}
+        />
 
-        {/* Available Stages */}
+        {/* Available Classrooms */}
         {stagesLoaded && (
           <>
             <div className="flex items-center gap-4 mt-10 mb-5">
@@ -215,7 +195,8 @@ export default function CourseDetailPage() {
                         {stage.name}
                       </p>
                       <p className="text-xs text-muted-foreground/50 mt-0.5">
-                        {stage.sceneCount} scene{stage.sceneCount !== 1 ? 's' : ''}
+                        {stage.sceneCount} scene
+                        {stage.sceneCount !== 1 ? 's' : ''}
                       </p>
                     </div>
                     <Button
@@ -234,93 +215,5 @@ export default function CourseDetailPage() {
         )}
       </div>
     </div>
-  );
-}
-
-// ─── Sortable Lesson Card ────────────────────────────────────────────
-
-function LessonCard({
-  meta,
-  index,
-  onEnter,
-  onRemove,
-}: {
-  meta: LessonMeta;
-  index: number;
-  onEnter: () => void;
-  onRemove: () => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: meta.stageId });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-
-  return (
-    <motion.div
-      ref={setNodeRef}
-      style={style}
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.04, duration: 0.3 }}
-      className={cn(
-        'group flex items-center gap-3 rounded-xl border bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-4 py-3 transition-all',
-        isDragging
-          ? 'border-violet-400/60 shadow-lg shadow-violet-500/10 z-50'
-          : 'border-border/50 hover:border-border/80',
-      )}
-    >
-      {/* Drag handle */}
-      <button
-        {...attributes}
-        {...listeners}
-        className="shrink-0 p-1 -ml-1 rounded-md text-muted-foreground/30 hover:text-muted-foreground/60 cursor-grab active:cursor-grabbing transition-colors"
-      >
-        <GripVertical className="size-4" />
-      </button>
-
-      {/* Order number */}
-      <span className="shrink-0 size-6 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-[11px] font-semibold text-violet-600 dark:text-violet-400 tabular-nums">
-        {index + 1}
-      </span>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-foreground/90 truncate">
-          {meta.name}
-        </p>
-        <p className="text-xs text-muted-foreground/50 mt-0.5">
-          {meta.sceneCount} scene{meta.sceneCount !== 1 ? 's' : ''}
-        </p>
-      </div>
-
-      {/* Actions */}
-      <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 rounded-lg text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-          onClick={onEnter}
-        >
-          <Play className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8 rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10"
-          onClick={onRemove}
-        >
-          <Trash2 className="size-3.5" />
-        </Button>
-      </div>
-    </motion.div>
   );
 }

@@ -4,19 +4,28 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, X, GripVertical } from 'lucide-react';
-import { DndContext, DragOverlay, closestCenter, type DragStartEvent, type DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  type DragStartEvent,
+  type DragEndEvent,
+  useDroppable,
+  useDraggable,
+} from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
 import { listStages, type StageListItem } from '@/lib/utils/stage-storage';
 import { CourseCard } from '@/components/library/course-card';
+import { flattenLessons } from '@/lib/utils/course-tree-ops';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('Library');
 
 export default function LibraryPage() {
   const router = useRouter();
-  const courses = useCourseLibraryStore((s) => s.courses);
+  const trees = useCourseLibraryStore((s) => s.trees);
   const loading = useCourseLibraryStore((s) => s.loading);
 
   const [stages, setStages] = useState<StageListItem[]>([]);
@@ -25,7 +34,7 @@ export default function LibraryPage() {
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
 
   useEffect(() => {
-    useCourseLibraryStore.getState().loadCourses();
+    useCourseLibraryStore.getState().loadTrees();
     listStages()
       .then((list) => {
         setStages(list);
@@ -37,42 +46,68 @@ export default function LibraryPage() {
       });
   }, []);
 
+  // Unassigned = stages not in any tree's lessons
   const unassignedStages = useMemo(() => {
     const assignedIds = new Set<string>();
-    for (const course of courses) {
-      for (const lesson of course.lessons) {
+    for (const tree of trees) {
+      for (const lesson of flattenLessons(tree.root)) {
         assignedIds.add(lesson.stageId);
       }
     }
     return stages.filter((s) => !assignedIds.has(s.id));
-  }, [courses, stages]);
+  }, [trees, stages]);
 
   const activeStage = useMemo(
     () => stages.find((s) => s.id === activeStageId),
     [stages, activeStageId],
   );
 
+  // Map trees to CourseCard-compatible format
+  const courseCards = useMemo(
+    () =>
+      trees.map((tree) => ({
+        id: tree.id,
+        name: tree.name,
+        description: tree.description,
+        lessonCount: flattenLessons(tree.root).length,
+        updatedAt: tree.updatedAt,
+      })),
+    [trees],
+  );
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveStageId(event.active.id as string);
   }, []);
 
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveStageId(null);
-    const { active, over } = event;
-    if (!over) return;
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      setActiveStageId(null);
+      const { active, over } = event;
+      if (!over) return;
 
-    const stageId = active.id as string;
-    const courseId = over.id as string;
+      const stageId = active.id as string;
+      const treeId = over.id as string;
 
-    // Verify the drop target is a course
-    const targetCourse = courses.find((c) => c.id === courseId);
-    if (!targetCourse) return;
+      const targetTree = trees.find((t) => t.id === treeId);
+      if (!targetTree) return;
 
-    // Don't add if already in this course
-    if (targetCourse.lessons.some((l) => l.stageId === stageId)) return;
+      // Don't add if already in this tree
+      const existing = flattenLessons(targetTree.root);
+      if (existing.some((l) => l.stageId === stageId)) return;
 
-    useCourseLibraryStore.getState().addLesson(courseId, stageId);
-  }, [courses]);
+      const stage = stages.find((s) => s.id === stageId);
+      const { nanoid } = require('nanoid');
+
+      useCourseLibraryStore.getState().addNode(treeId, targetTree.root.id, {
+        id: nanoid(),
+        type: 'lesson',
+        title: stage?.name || stageId,
+        stageId,
+        order: targetTree.root.children?.length ?? 0,
+      });
+    },
+    [trees, stages],
+  );
 
   return (
     <div className="min-h-[100dvh] w-full bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex flex-col items-center p-4 md:p-8 overflow-x-hidden">
@@ -93,7 +128,7 @@ export default function LibraryPage() {
                 Course Library
               </h1>
               <p className="text-sm text-muted-foreground/60 mt-0.5">
-                Organize classrooms into structured courses
+                Organize classrooms into courses and curricula
               </p>
             </div>
           </div>
@@ -103,13 +138,17 @@ export default function LibraryPage() {
           </Button>
         </div>
 
-        <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
           {/* Course Grid */}
           {loading ? (
             <div className="flex items-center justify-center py-24">
-              <p className="text-sm text-muted-foreground/60">Loading courses...</p>
+              <p className="text-sm text-muted-foreground/60">Loading...</p>
             </div>
-          ) : courses.length === 0 ? (
+          ) : courseCards.length === 0 ? (
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -120,7 +159,7 @@ export default function LibraryPage() {
                 <span className="text-2xl opacity-60">📚</span>
               </div>
               <p className="text-sm text-muted-foreground/70 max-w-sm">
-                No courses yet. Create one to organize your classrooms.
+                No courses yet. Create one to start building your curriculum.
               </p>
             </motion.div>
           ) : (
@@ -130,14 +169,14 @@ export default function LibraryPage() {
               transition={{ duration: 0.3 }}
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
             >
-              {courses.map((course, i) => (
+              {courseCards.map((card, i) => (
                 <DroppableCourseCard
-                  key={course.id}
-                  course={course}
+                  key={card.id}
+                  card={card}
                   index={i}
-                  isOver={activeStageId !== null}
+                  isDragActive={activeStageId !== null}
                   onOpen={(id) => router.push(`/library/${id}`)}
-                  onDelete={(id) => useCourseLibraryStore.getState().deleteCourse(id)}
+                  onDelete={(id) => useCourseLibraryStore.getState().deleteTree(id)}
                 />
               ))}
             </motion.div>
@@ -173,7 +212,6 @@ export default function LibraryPage() {
             </>
           )}
 
-          {/* Drag overlay — ghost card that follows the cursor */}
           <DragOverlay>
             {activeStage ? (
               <div className="rounded-xl border border-violet-400/60 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-xl shadow-violet-500/10 px-4 py-3 text-sm font-medium text-foreground/90 max-w-[200px] truncate">
@@ -184,7 +222,6 @@ export default function LibraryPage() {
         </DndContext>
       </div>
 
-      {/* Create Course Dialog */}
       <CreateCourseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
@@ -193,19 +230,19 @@ export default function LibraryPage() {
 // ─── Droppable Course Card ─────────────────────────────────────────────
 
 function DroppableCourseCard({
-  course,
+  card,
   index,
-  isOver: isDragActive,
+  isDragActive,
   onOpen,
   onDelete,
 }: {
-  course: { id: string; name: string; description?: string; lessons: Array<{ stageId: string; title?: string; order: number }>; updatedAt: number };
+  card: { id: string; name: string; description?: string; lessonCount: number; updatedAt: number };
   index: number;
-  isOver: boolean;
+  isDragActive: boolean;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: course.id });
+  const { setNodeRef, isOver } = useDroppable({ id: card.id });
 
   return (
     <motion.div
@@ -219,15 +256,27 @@ function DroppableCourseCard({
         isDragActive && !isOver && 'opacity-80',
       )}
     >
-      <div className={cn(
-        'rounded-2xl border-2 border-dashed transition-all duration-200',
-        isOver
-          ? 'border-violet-400 bg-violet-50/30 dark:bg-violet-950/20'
-          : isDragActive
-            ? 'border-border/40'
-            : 'border-transparent',
-      )}>
-        <CourseCard course={course} onOpen={onOpen} onDelete={onDelete} />
+      <div
+        className={cn(
+          'rounded-2xl border-2 border-dashed transition-all duration-200',
+          isOver
+            ? 'border-violet-400 bg-violet-50/30 dark:bg-violet-950/20'
+            : isDragActive
+              ? 'border-border/40'
+              : 'border-transparent',
+        )}
+      >
+        <CourseCard
+          course={{
+            id: card.id,
+            name: card.name,
+            description: card.description,
+            lessons: Array(card.lessonCount).fill({ stageId: '', order: 0 }),
+            updatedAt: card.updatedAt,
+          }}
+          onOpen={onOpen}
+          onDelete={onDelete}
+        />
       </div>
     </motion.div>
   );
@@ -275,7 +324,7 @@ function CreateCourseDialog({
 
   const handleCreate = () => {
     if (!name.trim()) return;
-    useCourseLibraryStore.getState().createCourse(name.trim(), description.trim());
+    useCourseLibraryStore.getState().createTree(name.trim(), description.trim() || undefined);
     setName('');
     setDescription('');
     onOpenChange(false);

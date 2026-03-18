@@ -1,18 +1,19 @@
 /**
  * Course Library Store
  *
- * Zustand store for managing the course library.
+ * Zustand store for managing the course library with recursive tree structures.
  * Delegates persistence to course-storage (IndexedDB via Dexie).
+ * Uses pure tree operations from course-tree-ops for immutable updates.
  */
 
 import { create } from 'zustand';
+import type { CourseNode, CourseTreeRecord } from '@/lib/types/course-tree';
 import {
-  listCourses,
-  getCourse,
-  saveCourse,
-  deleteCourse,
+  listCourseTrees,
+  saveCourseTree,
+  deleteCourseTree,
 } from '@/lib/utils/course-storage';
-import type { CourseRecord } from '@/lib/utils/database';
+import * as ops from '@/lib/utils/course-tree-ops';
 import { nanoid } from 'nanoid';
 import { createSelectors } from '@/lib/utils/create-selectors';
 import { createLogger } from '@/lib/logger';
@@ -20,139 +21,133 @@ import { createLogger } from '@/lib/logger';
 const log = createLogger('CourseLibrary');
 
 interface CourseLibraryState {
-  courses: CourseRecord[];
+  trees: CourseTreeRecord[];
   loading: boolean;
 
-  loadCourses: () => Promise<void>;
-  createCourse: (name: string, description?: string) => Promise<string>;
-  updateCourse: (id: string, updates: Partial<CourseRecord>) => Promise<void>;
-  deleteCourse: (id: string) => Promise<void>;
+  loadTrees: () => Promise<void>;
+  createTree: (name: string, description?: string) => Promise<string>;
+  deleteTree: (id: string) => Promise<void>;
 
-  addLesson: (courseId: string, stageId: string, title?: string) => Promise<void>;
-  removeLesson: (courseId: string, stageId: string) => Promise<void>;
-  reorderLessons: (courseId: string, orderedStageIds: string[]) => Promise<void>;
+  // Tree operations (all take treeId + use ops functions)
+  addNode: (treeId: string, parentId: string, node: CourseNode) => Promise<void>;
+  removeNode: (treeId: string, nodeId: string) => Promise<void>;
+  moveNode: (
+    treeId: string,
+    nodeId: string,
+    newParentId: string,
+    index: number,
+  ) => Promise<void>;
+  reorderChildren: (
+    treeId: string,
+    parentId: string,
+    orderedIds: string[],
+  ) => Promise<void>;
+  updateNode: (
+    treeId: string,
+    nodeId: string,
+    updates: Partial<Pick<CourseNode, 'title' | 'description' | 'collapsed'>>,
+  ) => Promise<void>;
+}
+
+/**
+ * Helper: find a tree by ID in current state, apply a root mutation, persist, and update state.
+ */
+async function mutateTree(
+  get: () => CourseLibraryState,
+  set: (partial: Partial<CourseLibraryState>) => void,
+  treeId: string,
+  mutate: (root: CourseNode) => CourseNode,
+): Promise<void> {
+  const tree = get().trees.find((t) => t.id === treeId);
+  if (!tree) {
+    log.warn('Tree not found:', treeId);
+    return;
+  }
+
+  const newRoot = mutate(tree.root);
+  const updated: CourseTreeRecord = {
+    ...tree,
+    root: newRoot,
+    updatedAt: Date.now(),
+  };
+
+  await saveCourseTree(updated);
+  set({
+    trees: get().trees.map((t) => (t.id === treeId ? updated : t)),
+  });
 }
 
 const useCourseLibraryBase = create<CourseLibraryState>()((set, get) => ({
-  courses: [],
+  trees: [],
   loading: false,
 
-  loadCourses: async () => {
+  loadTrees: async () => {
     set({ loading: true });
     try {
-      const courses = await listCourses();
-      set({ courses });
+      const trees = await listCourseTrees();
+      set({ trees });
     } catch (error) {
-      log.error('Failed to load courses:', error);
+      log.error('Failed to load course trees:', error);
     } finally {
       set({ loading: false });
     }
   },
 
-  createCourse: async (name, description) => {
+  createTree: async (name, description) => {
     const now = Date.now();
-    const course: CourseRecord = {
-      id: nanoid(),
+    const treeId = nanoid();
+    const tree: CourseTreeRecord = {
+      id: treeId,
       name,
       description,
-      lessons: [],
+      root: {
+        id: nanoid(),
+        type: 'group',
+        title: name,
+        order: 0,
+        children: [],
+      },
       createdAt: now,
       updatedAt: now,
     };
-    await saveCourse(course);
-    set({ courses: [course, ...get().courses] });
-    return course.id;
+    await saveCourseTree(tree);
+    set({ trees: [tree, ...get().trees] });
+    return treeId;
   },
 
-  updateCourse: async (id, updates) => {
-    const existing = await getCourse(id);
-    if (!existing) {
-      log.warn('Course not found for update:', id);
-      return;
-    }
-    const updated: CourseRecord = {
-      ...existing,
-      ...updates,
-      id, // prevent id override
-      updatedAt: Date.now(),
-    };
-    await saveCourse(updated);
-    set({
-      courses: get().courses.map((c) => (c.id === id ? updated : c)),
-    });
+  deleteTree: async (id) => {
+    await deleteCourseTree(id);
+    set({ trees: get().trees.filter((t) => t.id !== id) });
   },
 
-  deleteCourse: async (id) => {
-    await deleteCourse(id);
-    set({ courses: get().courses.filter((c) => c.id !== id) });
+  addNode: async (treeId, parentId, node) => {
+    await mutateTree(get, set, treeId, (root) =>
+      ops.addChild(root, parentId, node),
+    );
   },
 
-  addLesson: async (courseId, stageId, title) => {
-    const existing = await getCourse(courseId);
-    if (!existing) {
-      log.warn('Course not found for addLesson:', courseId);
-      return;
-    }
-    // Skip if already present
-    if (existing.lessons.some((l) => l.stageId === stageId)) return;
-
-    const maxOrder = existing.lessons.reduce((max, l) => Math.max(max, l.order), -1);
-    const updated: CourseRecord = {
-      ...existing,
-      lessons: [...existing.lessons, { stageId, title, order: maxOrder + 1 }],
-      updatedAt: Date.now(),
-    };
-    await saveCourse(updated);
-    set({
-      courses: get().courses.map((c) => (c.id === courseId ? updated : c)),
-    });
+  removeNode: async (treeId, nodeId) => {
+    await mutateTree(get, set, treeId, (root) =>
+      ops.removeNode(root, nodeId),
+    );
   },
 
-  removeLesson: async (courseId, stageId) => {
-    const existing = await getCourse(courseId);
-    if (!existing) {
-      log.warn('Course not found for removeLesson:', courseId);
-      return;
-    }
-    const filtered = existing.lessons.filter((l) => l.stageId !== stageId);
-    // Re-normalize order values
-    const lessons = filtered.map((l, i) => ({ ...l, order: i }));
-    const updated: CourseRecord = {
-      ...existing,
-      lessons,
-      updatedAt: Date.now(),
-    };
-    await saveCourse(updated);
-    set({
-      courses: get().courses.map((c) => (c.id === courseId ? updated : c)),
-    });
+  moveNode: async (treeId, nodeId, newParentId, index) => {
+    await mutateTree(get, set, treeId, (root) =>
+      ops.moveNode(root, nodeId, newParentId, index),
+    );
   },
 
-  reorderLessons: async (courseId, orderedStageIds) => {
-    const existing = await getCourse(courseId);
-    if (!existing) {
-      log.warn('Course not found for reorderLessons:', courseId);
-      return;
-    }
-    // Build a lookup from the existing lessons
-    const lessonMap = new Map(existing.lessons.map((l) => [l.stageId, l]));
-    const lessons = orderedStageIds
-      .map((stageId, index) => {
-        const lesson = lessonMap.get(stageId);
-        if (!lesson) return null;
-        return { ...lesson, order: index };
-      })
-      .filter((l): l is NonNullable<typeof l> => l !== null);
+  reorderChildren: async (treeId, parentId, orderedIds) => {
+    await mutateTree(get, set, treeId, (root) =>
+      ops.reorderChildren(root, parentId, orderedIds),
+    );
+  },
 
-    const updated: CourseRecord = {
-      ...existing,
-      lessons,
-      updatedAt: Date.now(),
-    };
-    await saveCourse(updated);
-    set({
-      courses: get().courses.map((c) => (c.id === courseId ? updated : c)),
-    });
+  updateNode: async (treeId, nodeId, updates) => {
+    await mutateTree(get, set, treeId, (root) =>
+      ops.updateNode(root, nodeId, updates),
+    );
   },
 }));
 

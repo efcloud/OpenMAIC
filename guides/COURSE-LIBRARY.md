@@ -1,272 +1,216 @@
-# Course Library — Architecture Plan
+# Course Library — Architecture Plan (v2)
 
-## Overview
+## Core Concept
 
-A new `/library` page that lets users organize classrooms into courses and curricula. Classrooms (stages) already exist as standalone units in IndexedDB. The library adds a layer above them — grouping, ordering, and hierarchy.
+A recursive tree where every item is a **node**. A node is either:
+- **Group** — a container (Course, Module, Unit, Chapter, Section)
+- **Lesson** — a link to an existing classroom/stage
 
-## Concepts
+Groups can contain other groups and lessons at any depth. The structure is fully flexible — the user decides the hierarchy.
 
 ```
-Curriculum (optional top-level)
-  └── Course
-        └── Module (optional grouping)
-              └── Lesson (= existing Stage/Classroom)
+📚 English Curriculum           ← group (depth 0)
+  📘 Beginner Course            ← group (depth 1)
+    📂 Unit 1: Greetings        ← group (depth 2)
+      📄 Lesson: Hello World    ← lesson (→ stageId)
+      📄 Lesson: Introductions  ← lesson (→ stageId)
+      📄 Lesson: Quiz           ← lesson (→ stageId)
+    📂 Unit 2: Daily Life       ← group (depth 2)
+      📄 Lesson: Food           ← lesson (→ stageId)
+      📄 Lesson: Transport      ← lesson (→ stageId)
+  📘 Intermediate Course        ← group (depth 1)
+    📄 Lesson: Business English ← lesson (→ stageId)
 ```
 
-**Minimum viable**: Course → Lessons (flat list, drag-to-reorder).
-**Full version**: Curriculum → Courses → Modules → Lessons (nested hierarchy).
-
-We start with the minimum viable and design for extensibility.
+The **depth labels** (Curriculum, Course, Unit, Lesson) are just display hints — the data model doesn't care about depth names. Users can nest as deep as they want.
 
 ## Data Model
 
-### New: CourseRecord (IndexedDB)
+### CourseNode (recursive)
 
 ```typescript
-interface CourseRecord {
-  id: string;           // nanoid
-  name: string;
-  description?: string;
-  coverImage?: string;  // URL or blob reference
-  lessons: LessonRef[]; // Ordered list of stage references
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface LessonRef {
-  stageId: string;      // References stages table
-  title?: string;       // Override display name (defaults to stage.name)
-  order: number;        // Position in the course
-}
-```
-
-### New: CurriculumRecord (future)
-
-```typescript
-interface CurriculumRecord {
+interface CourseNode {
   id: string;
-  name: string;
+  type: 'group' | 'lesson';
+  title: string;
   description?: string;
-  courses: CourseRef[];  // Ordered list of course references
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface CourseRef {
-  courseId: string;
   order: number;
+
+  // Group-only
+  children?: CourseNode[];
+  collapsed?: boolean;       // UI state: collapsed in tree view
+
+  // Lesson-only
+  stageId?: string;          // Reference to stages table
 }
 ```
 
-### Database Changes
+### CourseTreeRecord (IndexedDB — one per top-level tree)
 
 ```typescript
-// lib/utils/database.ts — add to Dexie schema (bump version)
+interface CourseTreeRecord {
+  id: string;                // nanoid
+  name: string;              // Display name for the library grid
+  description?: string;
+  root: CourseNode;          // The entire tree is stored as one nested JSON
+  createdAt: number;
+  updatedAt: number;
+}
+```
+
+The whole tree is a single JSON blob in IndexedDB. Trees are small (metadata only, no media), so this is efficient and avoids complex relational queries.
+
+### Database
+
+```typescript
+// courses table stores CourseTreeRecord
+// Primary key: id, Index: updatedAt
 db.version(9).stores({
-  // ... existing tables ...
-  courses: 'id, updatedAt',          // New
-  // curricula: 'id, updatedAt',     // Future
+  courses: 'id, updatedAt',
 });
 ```
 
-### Relationship to Existing Data
-
-```
-courses (NEW)                stages (EXISTING)
-┌───────────────┐           ┌──────────────────┐
-│ id            │           │ id               │
-│ name          │     ┌────►│ name             │
-│ lessons[]     │─────┘     │ scenes[]         │
-│   stageId  ───┤           │ actions[]        │
-│   order       │           │ ...              │
-│ createdAt     │           └──────────────────┘
-└───────────────┘
-```
-
-A stage can appear in multiple courses (reference, not copy). Deleting a course doesn't delete its stages. Deleting a stage removes it from courses that reference it (cleanup on load).
-
 ## UI Design
 
-### `/library` Page
+### Library Page (`/library`)
+
+Grid of top-level trees (same as before) + unassigned classrooms.
+
+### Tree Editor (`/library/[treeId]`)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ← Home    Course Library                    + New Course │
+│  ← Library    📚 English Curriculum         [+ Group] [+ Lesson] │
 ├──────────────────────────────────────────────────────────┤
 │                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │ 📘          │  │ 📗          │  │ 📙          │     │
-│  │ Course 1    │  │ Course 2    │  │ Course 3    │     │
-│  │ 5 lessons   │  │ 3 lessons   │  │ 8 lessons   │     │
-│  │ Updated 2h  │  │ Updated 1d  │  │ Updated 3d  │     │
-│  │             │  │             │  │             │     │
-│  │ [Open] [⋯] │  │ [Open] [⋯] │  │ [Open] [⋯] │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
+│  ▼ 📘 Beginner Course                          [⋯]     │
+│    │                                                     │
+│    ├─ ▼ 📂 Unit 1: Greetings                   [⋯]     │
+│    │   ├─ 📄 Hello World          [▶ Enter]    [⋯]     │
+│    │   ├─ 📄 Introductions        [▶ Enter]    [⋯]     │
+│    │   └─ 📄 Quiz                 [▶ Enter]    [⋯]     │
+│    │                                                     │
+│    └─ ▶ 📂 Unit 2: Daily Life  (collapsed)      [⋯]     │
 │                                                          │
-│  Unassigned Classrooms ──────────────────────────────── │
-│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐              │
-│  │ PPT │ │ PPT │ │ PPT │ │ PPT │ │ PPT │              │
-│  │  1  │ │  2  │ │  3  │ │  4  │ │  5  │              │
-│  └─────┘ └─────┘ └─────┘ └─────┘ └─────┘              │
-│  (drag these into a course above)                        │
-└──────────────────────────────────────────────────────────┘
-```
-
-### Course Detail View (inline expand or separate page)
-
-```
-┌──────────────────────────────────────────────────────────┐
-│  ← Back to Library    📘 Course: "Intro to Physics"      │
-│                                                   [Edit] │
-├──────────────────────────────────────────────────────────┤
+│  ▼ 📘 Intermediate Course                       [⋯]     │
+│    └─ 📄 Business English      [▶ Enter]        [⋯]     │
 │                                                          │
-│  ≡  1. Newton's Laws           [▶ Enter]  [✕ Remove]    │
-│  ≡  2. Forces and Motion       [▶ Enter]  [✕ Remove]    │
-│  ≡  3. Energy Conservation     [▶ Enter]  [✕ Remove]    │
-│  ≡  4. Quiz: Unit Review       [▶ Enter]  [✕ Remove]    │
-│                                                          │
-│  ─── Drop zone: drag classrooms here ───                 │
+│  ─── Drop zone: drag classrooms here to add ───         │
 │                                                          │
 │  Available Classrooms:                                   │
 │  ┌─────┐ ┌─────┐ ┌─────┐                               │
-│  │ PPT │ │ PPT │ │ PPT │  (drag to add)                │
+│  │ PPT │ │ PPT │ │ PPT │                               │
 │  └─────┘ └─────┘ └─────┘                               │
 └──────────────────────────────────────────────────────────┘
-
-≡ = drag handle for reordering
 ```
+
+### Interactions
+
+- **Collapse/expand** groups by clicking the arrow
+- **Drag to reorder** nodes within the same level
+- **Drag to nest** — drop a node onto a group to move it inside
+- **Drag out** — drag from a group to the parent level
+- **Add group** — creates a new empty group at the current level
+- **Add lesson** — opens a picker of available classrooms
+- **[⋯] menu** — Rename, Delete, Convert group↔lesson
+- **[▶ Enter]** — opens `/classroom/[stageId]` for lessons
+
+### Depth Labels (cosmetic)
+
+The UI auto-labels based on depth for visual clarity:
+
+| Depth | Icon | Default Label |
+|-------|------|---------------|
+| 0 | 📚 | Curriculum |
+| 1 | 📘 | Course |
+| 2 | 📂 | Module |
+| 3 | 📁 | Unit |
+| 4 | 📋 | Section |
+| 5+ | 📎 | Group |
+
+These are just display hints — the data model is depth-agnostic.
 
 ## Technical Implementation
 
-### New Files
+### Files
 
 ```
-app/library/
-  page.tsx                    # Library page (course grid + unassigned)
-  [courseId]/
-    page.tsx                  # Course detail (lesson list + reorder)
-
-lib/store/
-  course-library.ts           # Zustand store for courses
-
-lib/utils/
-  course-storage.ts           # IndexedDB CRUD for courses
+lib/types/course-tree.ts          # CourseNode, CourseTreeRecord types
+lib/utils/course-storage.ts       # IndexedDB CRUD (rewrite)
+lib/store/course-library.ts       # Zustand store (rewrite for tree ops)
+lib/utils/course-tree-ops.ts      # Pure tree manipulation functions
 
 components/library/
-  course-card.tsx             # Course grid card
-  course-detail.tsx           # Course detail with drag-drop lessons
-  lesson-card.tsx             # Draggable lesson card (mini stage preview)
-  drop-zone.tsx               # Drop target for adding lessons to course
+  course-card.tsx                  # Grid card (keep)
+  tree-editor.tsx                  # Main tree view + drag-drop
+  tree-node.tsx                    # Recursive node component
+  add-node-dialog.tsx              # Dialog for adding group or lesson
+  node-menu.tsx                    # Context menu for node actions
+
+app/library/
+  page.tsx                         # Library grid (minor update)
+  [treeId]/page.tsx                # Tree editor (rewrite)
 ```
 
-### Dependencies
-
-```json
-{
-  "@dnd-kit/core": "^6",
-  "@dnd-kit/sortable": "^10",
-  "@dnd-kit/utilities": "^3"
-}
-```
-
-`@dnd-kit` is the standard React drag-and-drop library — lightweight, accessible, works with React 19. Provides `useSortable`, `DndContext`, `SortableContext` for the reorderable lesson list.
-
-### Zustand Store
+### Tree Operations (pure functions)
 
 ```typescript
-// lib/store/course-library.ts
-interface CourseLibraryState {
-  courses: CourseRecord[];
-  loading: boolean;
+// lib/utils/course-tree-ops.ts
 
-  // CRUD
-  loadCourses: () => Promise<void>;
-  createCourse: (name: string, description?: string) => Promise<string>;
-  updateCourse: (id: string, updates: Partial<CourseRecord>) => Promise<void>;
-  deleteCourse: (id: string) => Promise<void>;
+// Find a node by ID anywhere in the tree
+findNode(root: CourseNode, id: string): CourseNode | null
 
-  // Lesson management
-  addLesson: (courseId: string, stageId: string) => Promise<void>;
-  removeLesson: (courseId: string, stageId: string) => Promise<void>;
-  reorderLessons: (courseId: string, lessons: LessonRef[]) => Promise<void>;
-}
+// Find parent of a node
+findParent(root: CourseNode, id: string): CourseNode | null
+
+// Add a child to a group
+addChild(root: CourseNode, parentId: string, child: CourseNode): CourseNode
+
+// Remove a node (and all descendants if group)
+removeNode(root: CourseNode, id: string): CourseNode
+
+// Move a node to a new parent at a specific index
+moveNode(root: CourseNode, nodeId: string, newParentId: string, index: number): CourseNode
+
+// Reorder children within a parent
+reorderChildren(root: CourseNode, parentId: string, orderedIds: string[]): CourseNode
+
+// Flatten tree to ordered lesson list (for sequential playback)
+flattenLessons(root: CourseNode): Array<{ stageId: string; path: string[] }>
 ```
 
-### Storage Layer
+All operations return a new tree (immutable). The store replaces the root.
 
-```typescript
-// lib/utils/course-storage.ts
-export async function listCourses(): Promise<CourseRecord[]>;
-export async function getCourse(id: string): Promise<CourseRecord | null>;
-export async function saveCourse(course: CourseRecord): Promise<void>;
-export async function deleteCourse(id: string): Promise<void>;
+### Drag-and-Drop
 
-// Get stages NOT assigned to any course (for "unassigned" section)
-export async function getUnassignedStages(): Promise<StageListItem[]>;
-```
+Use `@dnd-kit/core` with custom collision detection:
+- **Reorder** within same level: vertical list sortable
+- **Nest** into group: detect drop on a group node → add as last child
+- **Un-nest**: drag to left edge → move to parent level
 
-### Navigation
-
-```
-/                    → Home (existing: create classroom, recent list)
-/library             → Course Library (NEW: course grid + unassigned)
-/library/[courseId]  → Course Detail (NEW: lesson list, reorder, enter)
-/classroom/[id]      → Classroom (existing: playback/editor)
-```
-
-The existing home page (`/`) keeps its "create classroom" flow. The library is a separate organizational layer.
-
-### Drag-and-Drop Flow
-
-1. **Reorder lessons within a course**: `@dnd-kit/sortable` with vertical list
-2. **Add lesson to course**: Drag from "unassigned" grid into the course's drop zone
-3. **Remove lesson**: Click remove button (not drag — simpler UX)
-4. **Move between courses**: Future — drag from one course to another
-
-### Stage Thumbnail Preview
-
-The existing `getFirstSlideByStages()` function already generates slide thumbnails. Reuse it for the lesson cards in the library.
+This requires `@dnd-kit/core` (already installed) but NOT `@dnd-kit/sortable` for the tree — we need custom logic for nesting.
 
 ## Phases
 
-### Phase 1: Core Library (this PR)
+### Phase 1: Core Tree (this PR)
+- [ ] Define types (CourseNode, CourseTreeRecord)
+- [ ] Tree operation pure functions
+- [ ] Update IndexedDB schema + storage
+- [ ] Update Zustand store for tree ops
+- [ ] Build tree editor component (recursive)
+- [ ] Drag-to-reorder within same level
+- [ ] Add group / add lesson dialogs
+- [ ] Collapse/expand groups
+- [ ] Delete / rename nodes
 
-- [ ] Add `courses` table to Dexie (version bump)
-- [ ] Create `course-storage.ts` (CRUD)
-- [ ] Create `course-library.ts` (Zustand store)
-- [ ] Build `/library` page with course grid
-- [ ] Build `/library/[courseId]` with lesson list
-- [ ] Add `@dnd-kit` for drag-to-reorder lessons
-- [ ] Drag unassigned classrooms into courses
-- [ ] Navigate to classroom from lesson card
-- [ ] Add "Library" link to home page and sidebar
+### Phase 2: Advanced DnD
+- [ ] Drag to nest (drop on group)
+- [ ] Drag to un-nest (drop on parent level)
+- [ ] Drag between trees (library page)
+- [ ] Visual drop indicators (line above/below/inside)
 
-### Phase 2: Polish
-
-- [ ] Course cover image (from first lesson's first slide)
-- [ ] Lesson progress tracking (which lessons have been played)
-- [ ] Sequential playback (finish lesson → auto-open next)
-- [ ] Course duplication
-- [ ] Export course structure as JSON
-
-### Phase 3: Curriculum Hierarchy (future)
-
-- [ ] Add `curricula` table
-- [ ] Nest courses within curricula
-- [ ] Tree view navigation
-- [ ] Curriculum-level progress dashboard
-
-## Integration with Efekta Content Agent (future)
-
-The Course Library maps cleanly to Acci's CourseTree agent:
-
-```
-Acci CourseTree         Library
-─────────────          ───────
-Tree root          →   Curriculum
-  Level 1 nodes    →   Courses
-    Level 2 nodes  →   Modules (optional)
-      Leaf nodes   →   Lessons (Stages)
-```
-
-Acci can generate a CourseTree → adapter converts to Library courses + stages.
+### Phase 3: Integration
+- [ ] Sequential playback (flatten tree → play lessons in order)
+- [ ] Progress tracking per lesson node
+- [ ] Acci CourseTree import (convert Acci tree → CourseNode tree)
+- [ ] Export/import tree as JSON

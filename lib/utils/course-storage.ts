@@ -1,59 +1,38 @@
 /**
- * Course Storage Manager
+ * Course Tree Storage Manager
  *
- * CRUD operations for courses in IndexedDB.
- * Each course groups multiple stages (lessons) into an ordered sequence.
+ * CRUD operations for course trees in IndexedDB.
+ * Each course tree stores a recursive nested structure of groups and lessons.
  */
 
-import { db, type CourseRecord } from './database';
+import { db } from './database';
+import type { CourseTreeRecord } from '@/lib/types/course-tree';
 
 /**
- * List all courses ordered by updatedAt DESC
+ * List all course trees ordered by updatedAt DESC.
  */
-export async function listCourses(): Promise<CourseRecord[]> {
-  return db.courses.orderBy('updatedAt').reverse().toArray();
+export async function listCourseTrees(): Promise<CourseTreeRecord[]> {
+  return db.courses.orderBy('updatedAt').reverse().toArray() as Promise<CourseTreeRecord[]>;
 }
 
 /**
- * Get a single course by ID
+ * Get a single course tree by ID.
  */
-export async function getCourse(id: string): Promise<CourseRecord | null> {
+export async function getCourseTree(id: string): Promise<CourseTreeRecord | null> {
   const record = await db.courses.get(id);
-  return record ?? null;
+  return (record as CourseTreeRecord | undefined) ?? null;
 }
 
 /**
- * Upsert a course record
+ * Upsert a course tree record.
  */
-export async function saveCourse(course: CourseRecord): Promise<void> {
-  await db.courses.put(course);
+export async function saveCourseTree(tree: CourseTreeRecord): Promise<void> {
+  await db.courses.put(tree as never);
 }
 
 /**
- * Delete a course by ID
+ * Delete a course tree by ID.
  */
-export async function deleteCourse(id: string): Promise<void> {
+export async function deleteCourseTree(id: string): Promise<void> {
   await db.courses.delete(id);
-}
-
-/**
- * Returns stage IDs that are NOT referenced by any course's lessons array.
- * Compares all stageIds from all courses.lessons against all stage IDs in the stages table.
- */
-export async function getUnassignedStageIds(): Promise<string[]> {
-  const [courses, stages] = await Promise.all([
-    db.courses.toArray(),
-    db.stages.toArray(),
-  ]);
-
-  const assignedIds = new Set<string>();
-  for (const course of courses) {
-    for (const lesson of course.lessons) {
-      assignedIds.add(lesson.stageId);
-    }
-  }
-
-  return stages
-    .map((stage) => stage.id)
-    .filter((id) => !assignedIds.has(id));
 }

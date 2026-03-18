@@ -167,17 +167,17 @@ export interface GeneratedAgentRecord {
 }
 
 /**
- * Course table - Course (collection of stages/lessons)
+ * Course table - Course tree (recursive nested structure of groups and lessons)
+ *
+ * @deprecated Import CourseTreeRecord from '@/lib/types/course-tree' instead.
+ * This re-export exists for backward compatibility with the database instance typing.
  */
-export interface CourseRecord {
-  id: string;
-  name: string;
-  description?: string;
-  coverImage?: string;
-  lessons: Array<{ stageId: string; title?: string; order: number }>;
-  createdAt: number;
-  updatedAt: number;
-}
+export type { CourseTreeRecord } from '@/lib/types/course-tree';
+
+// Legacy alias kept so `db.courses` EntityTable typing resolves.
+// The actual shape stored is CourseTreeRecord (with a nested `root` JSON column).
+import type { CourseTreeRecord } from '@/lib/types/course-tree';
+type CourseRecord = CourseTreeRecord;
 
 /** Build the compound primary key for mediaFiles: `${stageId}:${elementId}` */
 export function mediaFileKey(stageId: string, elementId: string): string {
@@ -187,7 +187,7 @@ export function mediaFileKey(stageId: string, elementId: string): string {
 // ==================== Database Definition ====================
 
 const DATABASE_NAME = 'MAIC-Database';
-const _DATABASE_VERSION = 9;
+const _DATABASE_VERSION = 10;
 
 /**
  * MAIC Database Instance
@@ -337,6 +337,67 @@ class MAICDatabase extends Dexie {
       generatedAgents: 'id, stageId',
       courses: 'id, updatedAt',
     });
+
+    // Version 10: Migrate courses from flat lessons array to recursive tree structure
+    // The indexed schema is unchanged — only the stored JSON shape changes.
+    this.version(10)
+      .stores({
+        stages: 'id, updatedAt',
+        scenes: 'id, stageId, order, [stageId+order]',
+        audioFiles: 'id, createdAt',
+        imageFiles: 'id, createdAt',
+        snapshots: '++id',
+        chatSessions: 'id, stageId, [stageId+createdAt]',
+        playbackState: 'stageId',
+        stageOutlines: 'stageId',
+        mediaFiles: 'id, stageId, [stageId+type]',
+        generatedAgents: 'id, stageId',
+        courses: 'id, updatedAt',
+      })
+      .upgrade(async (tx) => {
+        const table = tx.table('courses');
+        const allRecords = await table.toArray();
+        for (const rec of allRecords) {
+          // Skip if already migrated (has a root property)
+          if (rec.root) continue;
+
+          // Convert flat lessons array to tree structure
+          const lessons: Array<{ stageId: string; title?: string; order: number }> =
+            rec.lessons ?? [];
+          const children = lessons
+            .sort((a: { order: number }, b: { order: number }) => a.order - b.order)
+            .map(
+              (
+                lesson: { stageId: string; title?: string; order: number },
+                index: number,
+              ) => ({
+                id: `migrated_${lesson.stageId}`,
+                type: 'lesson' as const,
+                title: lesson.title ?? `Lesson ${index + 1}`,
+                order: index,
+                stageId: lesson.stageId,
+              }),
+            );
+
+          const migrated = {
+            id: rec.id,
+            name: rec.name,
+            description: rec.description,
+            root: {
+              id: `root_${rec.id}`,
+              type: 'group' as const,
+              title: rec.name,
+              order: 0,
+              children,
+            },
+            createdAt: rec.createdAt,
+            updatedAt: rec.updatedAt,
+          };
+
+          // Remove legacy fields
+          await table.put(migrated);
+        }
+      });
   }
 }
 
