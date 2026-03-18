@@ -1,72 +1,108 @@
 /**
- * Live TTS — generates and plays TTS audio for discussion/QA agent responses.
+ * Live TTS — sentence-level chunked TTS for discussion/QA agent responses.
  *
- * Accumulates streamed text chunks, then when the agent turn ends,
- * sends the full text to /api/generate/tts and plays the result.
- *
- * Sentence-level chunking (for lower latency) can be added later.
+ * As text streams in, detects sentence boundaries and generates TTS for each
+ * sentence as soon as it's complete. Audio chunks are queued and played
+ * sequentially for seamless playback that stays close to the text stream.
  */
 
 import { useSettingsStore } from '@/lib/store/settings';
+import { useAvatarStore } from '@/lib/store/avatar';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('LiveTTS');
 
-let currentAudio: HTMLAudioElement | null = null;
-let pendingText = '';
-let abortController: AbortController | null = null;
+// Sentence boundary regex — split on . ? ! and Chinese equivalents, but not on abbreviations like "Dr." or "3.14"
+const SENTENCE_BOUNDARY = /(?<=[.!?。！？])\s+|(?<=[.!?。！？])$/;
 
-/** Call this on each onLiveSpeech(text, agentId) tick */
+let prevText = '';
+let spokenUpTo = 0; // character index already queued for TTS
+let audioQueue: HTMLAudioElement[] = [];
+let isPlaying = false;
+let aborted = false;
+
+/** Call on each onLiveSpeech tick to detect and speak new sentences */
 export function onLiveSpeechTick(text: string | null, agentId: string | null) {
   if (text !== null && agentId !== null) {
-    // Agent is streaming — accumulate text
-    pendingText = text;
-  } else if (text === null && agentId === null && pendingText) {
-    // Agent turn ended — speak the accumulated text
-    const textToSpeak = pendingText;
-    pendingText = '';
-    speakText(textToSpeak);
+    prevText = text;
+    // Check for new complete sentences in the accumulated text
+    const unspoken = text.slice(spokenUpTo);
+    const sentences = splitSentences(unspoken);
+
+    // Speak all complete sentences (keep the last fragment for next tick)
+    if (sentences.length > 1) {
+      for (let i = 0; i < sentences.length - 1; i++) {
+        const sentence = sentences[i].trim();
+        if (sentence) {
+          spokenUpTo += sentences[i].length;
+          queueSentence(sentence);
+        }
+      }
+    }
+  } else if (text === null && agentId === null) {
+    // Agent turn ended — speak any remaining text
+    const remaining = prevText.slice(spokenUpTo).trim();
+    if (remaining) {
+      queueSentence(remaining);
+    }
+    prevText = '';
+    spokenUpTo = 0;
   }
 }
 
-/** Stop any in-progress TTS playback */
+/** Stop all TTS playback and clear queue */
 export function stopLiveTTS() {
-  pendingText = '';
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio = null;
+  aborted = true;
+  prevText = '';
+  spokenUpTo = 0;
+
+  // Stop current audio
+  if (audioQueue.length > 0) {
+    const current = audioQueue[0];
+    if (current) {
+      current.pause();
+      current.src = '';
+    }
   }
-  if (abortController) {
-    abortController.abort();
-    abortController = null;
+  audioQueue = [];
+  isPlaying = false;
+
+  // Cancel browser TTS
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
   }
+
+  // Reset abort flag after cleanup
+  setTimeout(() => { aborted = false; }, 0);
 }
 
-async function speakText(text: string) {
+function splitSentences(text: string): string[] {
+  // Split keeping the delimiter with the preceding sentence
+  const parts = text.split(SENTENCE_BOUNDARY);
+  return parts.filter(Boolean);
+}
+
+async function queueSentence(sentence: string) {
   const settings = useSettingsStore.getState();
+  if (settings.ttsMuted || aborted) return;
+  if (!sentence.trim()) return;
 
-  if (settings.ttsMuted) return;
-  if (!text.trim()) return;
-
-  // Browser-native TTS — use Web Speech API directly (no server round-trip)
+  // Browser-native TTS
   if (settings.ttsProviderId === 'browser-native-tts') {
-    speakWithBrowserTTS(text, settings.ttsSpeed);
+    queueBrowserTTS(sentence, settings.ttsSpeed);
     return;
   }
 
-  // Server-side TTS — call /api/generate/tts
+  // Server-side TTS
   const providerConfig = settings.ttsProvidersConfig[settings.ttsProviderId];
-
-  abortController = new AbortController();
 
   try {
     const response = await fetch('/api/generate/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: abortController.signal,
       body: JSON.stringify({
-        text,
-        audioId: `live-tts-${Date.now()}`,
+        text: sentence,
+        audioId: `live-tts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         ttsProviderId: settings.ttsProviderId,
         ttsVoice: settings.ttsVoice,
         ttsSpeed: settings.ttsSpeed,
@@ -75,49 +111,79 @@ async function speakText(text: string) {
       }),
     });
 
-    if (!response.ok) {
-      log.warn('TTS API error:', response.status);
-      return;
-    }
+    if (!response.ok || aborted) return;
 
-    const { base64, format } = await response.json();
-    if (!base64) return;
+    const data = await response.json();
+    if (!data.base64 || aborted) return;
 
-    // Decode and play
-    const binaryStr = atob(base64);
+    const binaryStr = atob(data.base64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
+    const format = data.format;
     const mimeType = format === 'wav' ? 'audio/wav' : format === 'ogg' ? 'audio/ogg' : 'audio/mp3';
     const blob = new Blob([bytes], { type: mimeType });
     const url = URL.createObjectURL(blob);
 
-    // Stop any previous audio
-    if (currentAudio) {
-      currentAudio.pause();
-    }
-
-    currentAudio = new Audio(url);
-    currentAudio.volume = settings.ttsVolume;
-    currentAudio.playbackRate = settings.playbackSpeed || 1;
-    currentAudio.addEventListener('ended', () => {
+    const audio = new Audio(url);
+    audio.volume = settings.ttsVolume;
+    audio.playbackRate = settings.playbackSpeed || 1;
+    audio.addEventListener('ended', () => {
       URL.revokeObjectURL(url);
-      currentAudio = null;
+      playNext();
     });
-    await currentAudio.play();
+    audio.addEventListener('error', () => {
+      URL.revokeObjectURL(url);
+      playNext();
+    });
+
+    audioQueue.push(audio);
+
+    // Start playing if nothing is currently playing
+    if (!isPlaying) {
+      playNext();
+    }
   } catch (err) {
-    if ((err as Error).name === 'AbortError') return;
-    log.error('Live TTS error:', err);
+    if (aborted) return;
+    log.error('Live TTS sentence error:', err);
   }
 }
 
-function speakWithBrowserTTS(text: string, speed: number) {
-  if (!('speechSynthesis' in window)) return;
+function playNext() {
+  // Remove the finished audio
+  if (audioQueue.length > 0 && isPlaying) {
+    audioQueue.shift();
+  }
 
-  window.speechSynthesis.cancel();
+  if (audioQueue.length === 0 || aborted) {
+    isPlaying = false;
+    useAvatarStore.getState().setMode('listening');
+    return;
+  }
+
+  isPlaying = true;
+  useAvatarStore.getState().setMode('speaking');
+  const next = audioQueue[0];
+  next.play().catch(() => {
+    playNext();
+  });
+}
+
+function queueBrowserTTS(text: string, speed: number) {
+  if (!('speechSynthesis' in window) || aborted) return;
+
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = speed;
+  utterance.onstart = () => {
+    useAvatarStore.getState().setMode('speaking');
+  };
+  utterance.onend = () => {
+    // Only go to listening if nothing else is queued
+    if (!window.speechSynthesis.speaking) {
+      useAvatarStore.getState().setMode('listening');
+    }
+  };
   window.speechSynthesis.speak(utterance);
 }

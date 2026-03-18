@@ -858,17 +858,16 @@ export function Stage({
             if (agentId !== undefined) {
               setSpeakingAgentId(agentId);
             }
-            // Live TTS: accumulate text while streaming, speak when agent turn ends
+            // Live TTS: detect sentence boundaries and speak as they arrive
             onLiveSpeechTick(text ?? null, agentId ?? null);
             if (text !== null || agentId) {
               setChatIsStreaming(true);
               setChatSessionType(chatAreaRef.current?.getActiveSessionType?.() ?? null);
               setIsTopicPending(false);
-              // Avatar speaks when agent is streaming in discussion/QA
-              useAvatarStore.getState().setMode('speaking');
+              // Avatar mode is now driven by the TTS audio queue (live-tts.ts)
+              // so we don't set it here — prevents fighting between text stream and audio
             } else if (text === null && agentId === null) {
               setChatIsStreaming(false);
-              useAvatarStore.getState().setMode('listening');
               // Don't clear chatSessionType here — it's needed by the stop
               // button when director cues user (cue_user → done → liveSpeech null).
               // It gets properly cleared in doSessionCleanup and scene change.
