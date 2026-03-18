@@ -28,6 +28,7 @@ export interface StageListItem {
   sceneCount: number;
   createdAt: number;
   updatedAt: number;
+  firstSceneTitle?: string;
 }
 
 /**
@@ -140,15 +141,17 @@ export async function listStages(): Promise<StageListItem[]> {
 
     const stageList: StageListItem[] = await Promise.all(
       stages.map(async (stage) => {
-        const sceneCount = await db.scenes.where('stageId').equals(stage.id).count();
+        const scenes = await db.scenes.where('stageId').equals(stage.id).sortBy('order');
+        const firstSceneTitle = scenes[0]?.title || undefined;
 
         return {
           id: stage.id,
           name: stage.name,
           description: stage.description,
-          sceneCount,
+          sceneCount: scenes.length,
           createdAt: stage.createdAt,
           updatedAt: stage.updatedAt,
+          firstSceneTitle,
         };
       }),
     );
