@@ -279,6 +279,86 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
       )}
 
       <audio ref={audioRef} className="hidden" />
+
+      {/* Regenerate TTS for current classroom */}
+      <div className="pt-4 mt-4 border-t space-y-2">
+        <RegenerateTTSButton />
+      </div>
     </div>
+  );
+}
+
+function RegenerateTTSButton() {
+  const [regenerating, setRegenerating] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setResult(null);
+
+    try {
+      const { useStageStore } = await import('@/lib/store');
+      const { generateTTSForScene } = await import('@/lib/hooks/use-scene-generator');
+      const { db } = await import('@/lib/utils/database');
+
+      const scenes = useStageStore.getState().scenes;
+      if (scenes.length === 0) {
+        setResult({ success: false, message: 'No classroom open. Open a classroom first.' });
+        setRegenerating(false);
+        return;
+      }
+
+      const speechActions = scenes.flatMap(
+        (s) => (s.actions || []).filter((a) => a.type === 'speech'),
+      );
+      for (const action of speechActions) {
+        await db.audioFiles.delete(`tts_${action.id}`).catch(() => {});
+      }
+
+      let totalFailed = 0;
+      for (const scene of scenes) {
+        const res = await generateTTSForScene(scene);
+        totalFailed += res.failedCount;
+      }
+
+      await useStageStore.getState().saveToStorage();
+
+      if (totalFailed > 0) {
+        setResult({ success: false, message: `Done with ${totalFailed} failures.` });
+      } else {
+        setResult({ success: true, message: `Regenerated ${speechActions.length} speech actions.` });
+      }
+    } catch (err) {
+      setResult({ success: false, message: err instanceof Error ? err.message : 'Failed.' });
+    }
+
+    setRegenerating(false);
+  };
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full rounded-lg"
+        onClick={handleRegenerate}
+        disabled={regenerating}
+      >
+        {regenerating ? (
+          <><Loader2 className="h-4 w-4 animate-spin mr-2" />Regenerating...</>
+        ) : (
+          <><Volume2 className="h-4 w-4 mr-2" />Regenerate classroom voice</>
+        )}
+      </Button>
+      {result && (
+        <p className={cn('text-xs', result.success ? 'text-emerald-600' : 'text-destructive')}>
+          {result.success ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
+          {result.message}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground/50">
+        Re-generates all speech audio using the current voice settings.
+      </p>
+    </>
   );
 }
