@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import {
   DndContext,
-  closestCenter,
+  pointerWithin,
   type DragEndEvent,
   KeyboardSensor,
   PointerSensor,
@@ -21,14 +21,14 @@ import { TreeNode } from '@/components/library/tree-node';
 import { AddNodeDialog } from '@/components/library/add-node-dialog';
 import { RenameDialog } from '@/components/library/rename-dialog';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
-import { findParent } from '@/lib/utils/course-tree-ops';
+import { findParent, findNode, moveNode } from '@/lib/utils/course-tree-ops';
 import type { CourseNode } from '@/lib/types/course-tree';
 import { nanoid } from 'nanoid';
 
 interface TreeEditorProps {
   treeId: string;
   root: CourseNode;
-  stageNames: Map<string, { name: string; sceneCount: number }>;
+  stageNames: Map<string, { name: string; sceneCount: number; firstSceneTitle?: string }>;
   availableStages: Array<{ id: string; name: string; sceneCount: number }>;
   onEnterLesson: (stageId: string) => void;
 }
@@ -68,7 +68,39 @@ export function TreeEditor({
       const activeId = active.id as string;
       const overId = over.id as string;
 
-      // Find the parent of the active node to determine which level we're reordering
+      // Check if dropped onto a group (droppable zone)
+      if (overId.startsWith('drop-')) {
+        const groupId = overId.slice(5); // strip "drop-" prefix
+
+        // Prevent dropping a node onto itself
+        if (activeId === groupId) return;
+
+        // Prevent dropping a parent into its own descendant
+        const activeNode = findNode(root, activeId);
+        if (activeNode?.type === 'group') {
+          const descendant = findNode(activeNode, groupId);
+          if (descendant) return;
+        }
+
+        // Move node into the group at the end
+        const targetGroup = findNode(root, groupId);
+        const lastIndex = targetGroup?.children?.length ?? 0;
+
+        // Expand the group so the user can see the dropped item
+        const groupNode = findNode(root, groupId);
+        if (groupNode?.collapsed) {
+          useCourseLibraryStore
+            .getState()
+            .updateNode(treeId, groupId, { collapsed: false });
+        }
+
+        useCourseLibraryStore
+          .getState()
+          .moveNode(treeId, activeId, groupId, lastIndex);
+        return;
+      }
+
+      // Otherwise: reorder within the same parent (sibling sort)
       const parent = findParent(root, activeId);
       if (!parent || !parent.children) return;
 
@@ -117,7 +149,7 @@ export function TreeEditor({
       const node: CourseNode = {
         id: nanoid(),
         type: 'lesson',
-        title: meta?.name ?? 'Untitled Lesson',
+        title: meta?.firstSceneTitle ?? meta?.name ?? 'Untitled Lesson',
         order: (root.children?.length ?? 0),
         stageId,
       };
@@ -162,7 +194,7 @@ export function TreeEditor({
       {/* Tree */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={pointerWithin}
         onDragEnd={handleDragEnd}
       >
         <SortableContext

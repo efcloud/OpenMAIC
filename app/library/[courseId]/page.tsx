@@ -44,10 +44,10 @@ export default function CourseDetailPage() {
   }, []);
 
   // Build stageNames map
-  const stageNames = useMemo<Map<string, { name: string; sceneCount: number }>>(() => {
-    const map = new Map<string, { name: string; sceneCount: number }>();
+  const stageNames = useMemo<Map<string, { name: string; sceneCount: number; firstSceneTitle?: string }>>(() => {
+    const map = new Map<string, { name: string; sceneCount: number; firstSceneTitle?: string }>();
     for (const s of stages) {
-      map.set(s.id, { name: s.name, sceneCount: s.sceneCount });
+      map.set(s.id, { name: s.name, sceneCount: s.sceneCount, firstSceneTitle: s.firstSceneTitle });
     }
     return map;
   }, [stages]);
@@ -82,7 +82,7 @@ export default function CourseDetailPage() {
       const node = {
         id: nanoid(),
         type: 'lesson' as const,
-        title: meta?.name ?? 'Untitled Lesson',
+        title: meta?.firstSceneTitle ?? meta?.name ?? 'Untitled Lesson',
         order: tree.root.children?.length ?? 0,
         stageId,
       };

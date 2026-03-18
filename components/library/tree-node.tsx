@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight,
@@ -11,6 +11,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { cn } from '@/lib/utils';
@@ -30,7 +31,7 @@ interface TreeNodeProps {
   treeId: string;
   onEnterLesson: (stageId: string) => void;
   onRename: (nodeId: string, currentTitle: string) => void;
-  stageNames: Map<string, { name: string; sceneCount: number }>;
+  stageNames: Map<string, { name: string; sceneCount: number; firstSceneTitle?: string }>;
 }
 
 const DEPTH_ICONS = [
@@ -56,16 +57,70 @@ export function TreeNode({
   const {
     attributes,
     listeners,
-    setNodeRef,
+    setNodeRef: setSortableRef,
     transform,
     transition,
     isDragging,
   } = useSortable({ id: node.id });
 
+  const isGroup = node.type === 'group';
+
+  // Droppable zone for group nodes (allows nesting)
+  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
+    id: `drop-${node.id}`,
+    disabled: !isGroup,
+  });
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  // --- Inline title editing (Issue 3) ---
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(node.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const commitEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== node.title) {
+      useCourseLibraryStore
+        .getState()
+        .updateNode(treeId, node.id, { title: trimmed });
+    }
+    setIsEditing(false);
+  }, [editValue, node.title, treeId, node.id]);
+
+  const cancelEdit = useCallback(() => {
+    setEditValue(node.title);
+    setIsEditing(false);
+  }, [node.title]);
+
+  const handleDoubleClick = useCallback(() => {
+    setEditValue(node.title);
+    setIsEditing(true);
+  }, [node.title]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitEdit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelEdit();
+      }
+    },
+    [commitEdit, cancelEdit],
+  );
+  // --- End inline editing ---
 
   const handleToggleCollapse = useCallback(() => {
     useCourseLibraryStore
@@ -77,7 +132,6 @@ export function TreeNode({
     useCourseLibraryStore.getState().removeNode(treeId, node.id);
   }, [treeId, node.id]);
 
-  const isGroup = node.type === 'group';
   const children = isGroup ? (node.children ?? []) : [];
   const sortedChildren = [...children].sort((a, b) => a.order - b.order);
 
@@ -85,16 +139,29 @@ export function TreeNode({
   const stageMeta = node.stageId ? stageNames.get(node.stageId) : undefined;
   const displayTitle = isGroup
     ? node.title
-    : stageMeta?.name ?? node.title;
+    : stageMeta?.firstSceneTitle ?? stageMeta?.name ?? node.title;
+
+  // Combine sortable + droppable refs for group nodes
+  const combinedRef = useCallback(
+    (el: HTMLElement | null) => {
+      setSortableRef(el);
+      if (isGroup) {
+        setDroppableRef(el);
+      }
+    },
+    [setSortableRef, setDroppableRef, isGroup],
+  );
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div ref={combinedRef} style={style}>
       <div
         className={cn(
           'group flex items-center gap-2 rounded-xl border bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-3 py-2 transition-all',
           isDragging
             ? 'border-violet-400/60 shadow-lg shadow-violet-500/10 z-50'
-            : 'border-border/50 hover:border-border/80',
+            : isOver && isGroup
+              ? 'border-violet-500 bg-violet-50/60 dark:bg-violet-950/30 shadow-md shadow-violet-500/10'
+              : 'border-border/50 hover:border-border/80',
         )}
         style={{ paddingLeft: `${depth * 24 + 12}px` }}
       >
@@ -131,15 +198,30 @@ export function TreeNode({
 
         {/* Title + meta */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-foreground/90 truncate">
-            {displayTitle}
-          </p>
-          {!isGroup && stageMeta && (
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onBlur={commitEdit}
+              className="w-full text-sm font-medium text-foreground/90 bg-transparent border-b border-violet-400 outline-none py-0"
+            />
+          ) : (
+            <p
+              className="text-sm font-medium text-foreground/90 truncate cursor-default"
+              onDoubleClick={handleDoubleClick}
+            >
+              {displayTitle}
+            </p>
+          )}
+          {!isGroup && stageMeta && !isEditing && (
             <p className="text-xs text-muted-foreground/50 mt-0.5">
               {stageMeta.sceneCount} scene{stageMeta.sceneCount !== 1 ? 's' : ''}
             </p>
           )}
-          {isGroup && (
+          {isGroup && !isEditing && (
             <p className="text-xs text-muted-foreground/40 mt-0.5">
               {children.length} item{children.length !== 1 ? 's' : ''}
             </p>
