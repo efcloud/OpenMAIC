@@ -118,12 +118,39 @@ function splitSentences(text: string): string[] {
   return text.split(SENTENCE_BOUNDARY).filter(Boolean);
 }
 
+/**
+ * Voice pool for agents without explicit voiceId.
+ * Assigns a consistent voice per agentId based on role + index.
+ */
+const VOICE_POOL_TEACHER = ['Aiden', 'Ethan', 'Ryan'];
+const VOICE_POOL_FEMALE = ['Serena', 'Cherry', 'Vivian', 'Chelsie', 'Mia'];
+const VOICE_POOL_MALE = ['Pip', 'Ethan', 'Kai', 'Neil', 'Mochi'];
+const agentVoiceCache = new Map<string, string>();
+
 /** Resolve the TTS voice for a given agent */
 function getVoiceForAgent(agentId: string): string {
+  // Check if agent has an explicit voiceId
   const agent = useAgentRegistry.getState().getAgent(agentId);
   if (agent?.voiceId) return agent.voiceId;
-  // Fall back to global TTS voice setting
-  return useSettingsStore.getState().ttsVoice;
+
+  // Check cache for previously assigned voice
+  if (agentVoiceCache.has(agentId)) return agentVoiceCache.get(agentId)!;
+
+  // Assign a voice based on role and a hash of the agentId for consistency
+  const hash = Array.from(agentId).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const absHash = Math.abs(hash);
+
+  let voice: string;
+  if (agent?.role === 'teacher') {
+    voice = VOICE_POOL_TEACHER[absHash % VOICE_POOL_TEACHER.length];
+  } else if (absHash % 2 === 0) {
+    voice = VOICE_POOL_FEMALE[absHash % VOICE_POOL_FEMALE.length];
+  } else {
+    voice = VOICE_POOL_MALE[absHash % VOICE_POOL_MALE.length];
+  }
+
+  agentVoiceCache.set(agentId, voice);
+  return voice;
 }
 
 async function queueSentence(sentence: string, agentId: string) {
