@@ -14,6 +14,7 @@ import { createStageAPI } from '@/lib/api/stage-api';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useMediaGenerationStore, isMediaPlaceholder } from '@/lib/store/media-generation';
 import type { AudioPlayer } from '@/lib/utils/audio-player';
+import { useSettingsStore } from '@/lib/store/settings';
 import type {
   Action,
   SpotlightAction,
@@ -165,14 +166,82 @@ export class ActionEngine {
   private async executeSpeech(action: SpeechAction): Promise<void> {
     if (!this.audioPlayer) return;
 
-    return new Promise<void>((resolve) => {
-      this.audioPlayer!.onEnded(() => resolve());
-      this.audioPlayer!.play(action.audioId || '')
-        .then((audioStarted) => {
-          if (!audioStarted) resolve();
-        })
-        .catch(() => resolve());
-    });
+    // If pre-generated audio exists in IndexedDB, play it
+    if (action.audioId) {
+      return new Promise<void>((resolve) => {
+        this.audioPlayer!.onEnded(() => resolve());
+        this.audioPlayer!.play(action.audioId || '')
+          .then((audioStarted) => {
+            if (!audioStarted) resolve();
+          })
+          .catch(() => resolve());
+      });
+    }
+
+    // No pre-generated audio — generate TTS on-the-fly
+    if (!action.text) return;
+
+    const settings = useSettingsStore.getState();
+    if (settings.ttsMuted) return;
+
+    const providerId = settings.ttsProviderId;
+
+    // Browser-native TTS fallback
+    if (providerId === 'browser-native-tts') {
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        await new Promise<void>((resolve) => {
+          const utterance = new SpeechSynthesisUtterance(action.text);
+          utterance.rate = settings.ttsSpeed || 1;
+          utterance.onend = () => resolve();
+          utterance.onerror = () => resolve();
+          window.speechSynthesis.speak(utterance);
+        });
+      }
+      return;
+    }
+
+    // Server-side TTS: call API directly and play audio
+    try {
+      const providerConfig = settings.ttsProvidersConfig?.[providerId];
+      const voice = providerConfig?.voice || 'Aiden';
+
+      const response = await fetch('/api/generate/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: action.text,
+          audioId: `engine-${Date.now()}`,
+          ttsProviderId: providerId,
+          ttsVoice: voice,
+          ttsSpeed: settings.ttsSpeed,
+          ttsApiKey: providerConfig?.apiKey || undefined,
+          ttsBaseUrl: providerConfig?.baseUrl || undefined,
+        }),
+      });
+
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.base64) return;
+
+      const binaryStr = atob(data.base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+      const mime =
+        data.format === 'wav' ? 'audio/wav' : data.format === 'ogg' ? 'audio/ogg' : 'audio/mp3';
+      const blob = new Blob([bytes], { type: mime });
+      const url = URL.createObjectURL(blob);
+
+      await new Promise<void>((resolve) => {
+        const audio = new Audio(url);
+        audio.volume = settings.ttsVolume ?? 1;
+        audio.playbackRate = settings.playbackSpeed || 1;
+        audio.addEventListener('ended', () => { URL.revokeObjectURL(url); resolve(); });
+        audio.addEventListener('error', () => { URL.revokeObjectURL(url); resolve(); });
+        audio.play().catch(() => { URL.revokeObjectURL(url); resolve(); });
+      });
+    } catch {
+      // Silently skip if TTS fails
+    }
   }
 
   // ==================== Synchronous — Video ====================

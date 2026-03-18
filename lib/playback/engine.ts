@@ -39,6 +39,7 @@ import type { AudioPlayer } from '@/lib/utils/audio-player';
 import { ActionEngine } from '@/lib/action/engine';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { createLogger } from '@/lib/logger';
+import { useSettingsStore } from '@/lib/store/settings';
 
 const log = createLogger('PlaybackEngine');
 
@@ -437,8 +438,53 @@ export class PlaybackEngine {
 
         this.audioPlayer
           .play(speechAction.audioId || '')
-          .then((audioStarted) => {
-            if (!audioStarted) scheduleReadingTimer();
+          .then(async (audioStarted) => {
+            if (!audioStarted) {
+              // No pre-generated audio — try on-the-fly TTS if text exists
+              if (speechAction.text) {
+                const settings = useSettingsStore.getState();
+                const providerId = settings.ttsProviderId;
+                if (!settings.ttsMuted && providerId !== 'browser-native-tts') {
+                  try {
+                    const providerConfig = settings.ttsProvidersConfig?.[providerId];
+                    const voice = providerConfig?.voice || 'Aiden';
+                    const res = await fetch('/api/generate/tts', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        text: speechAction.text,
+                        audioId: `engine-${Date.now()}`,
+                        ttsProviderId: providerId,
+                        ttsVoice: voice,
+                        ttsSpeed: settings.ttsSpeed,
+                        ttsApiKey: providerConfig?.apiKey || undefined,
+                        ttsBaseUrl: providerConfig?.baseUrl || undefined,
+                      }),
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data.base64) {
+                        const bin = atob(data.base64);
+                        const bytes = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                        const mime = data.format === 'wav' ? 'audio/wav' : data.format === 'ogg' ? 'audio/ogg' : 'audio/mp3';
+                        const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+                        const audio = new Audio(url);
+                        audio.volume = settings.ttsVolume ?? 1;
+                        audio.playbackRate = settings.playbackSpeed || 1;
+                        audio.addEventListener('ended', () => { URL.revokeObjectURL(url); this.callbacks.onSpeechEnd?.(); if (this.mode === 'playing') this.processNext(); });
+                        audio.addEventListener('error', () => { URL.revokeObjectURL(url); scheduleReadingTimer(); });
+                        audio.play().catch(() => { URL.revokeObjectURL(url); scheduleReadingTimer(); });
+                        return; // audio.onended will call processNext
+                      }
+                    }
+                  } catch {
+                    // fall through to reading timer
+                  }
+                }
+              }
+              scheduleReadingTimer();
+            }
           })
           .catch((err) => {
             log.error('TTS error:', err);
