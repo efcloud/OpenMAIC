@@ -13,7 +13,7 @@ import {
 } from '@/lib/generation/scene-generator';
 import type { AICallFn } from '@/lib/generation/pipeline-types';
 import { createLogger } from '@/lib/logger';
-import { parseModelString } from '@/lib/ai/providers';
+import { parseModelString, getProvider } from '@/lib/ai/providers';
 import { resolveApiKey } from '@/lib/server/provider-config';
 import { resolveModel } from '@/lib/server/resolve-model';
 import { persistClassroom } from '@/lib/server/classroom-storage';
@@ -102,10 +102,12 @@ export async function generateClassroom(
   const { model: languageModel, modelInfo, modelString } = resolveModel({});
   log.info(`Using server-configured model: ${modelString}`);
 
-  // Fail fast if the resolved provider has no API key configured
+  // Fail fast if the resolved provider has no API key configured.
+  // Skip this check for providers that use ambient credentials (e.g. Amazon Bedrock via IAM role).
   const { providerId } = parseModelString(modelString);
+  const providerConfig = getProvider(providerId as Parameters<typeof getProvider>[0]);
   const apiKey = resolveApiKey(providerId);
-  if (!apiKey) {
+  if (providerConfig?.requiresApiKey !== false && !apiKey) {
     throw new Error(
       `No API key configured for provider "${providerId}". ` +
         `Set the appropriate key in .env.local or server-providers.yml (e.g. ${providerId.toUpperCase()}_API_KEY).`,

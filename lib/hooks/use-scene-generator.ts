@@ -212,17 +212,42 @@ export async function generateAndStoreTTS(
   voiceOverride?: string,
 ): Promise<void> {
   const settings = useSettingsStore.getState();
-  if (settings.ttsProviderId === 'browser-native-tts') return;
 
-  const ttsProviderConfig = settings.ttsProvidersConfig?.[settings.ttsProviderId];
+  // If browser has native TTS selected, check if server has a real TTS provider configured
+  // (e.g. user accessing via Cloudflare tunnel where localStorage is fresh)
+  let effectiveTtsProviderId = settings.ttsProviderId;
+  let effectiveTtsVoice = settings.ttsVoice;
+  if (effectiveTtsProviderId === 'browser-native-tts') {
+    try {
+      const serverRes = await fetch('/api/server-providers');
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        const serverTtsIds = Object.keys(serverData?.tts || {});
+        if (serverTtsIds.length > 0) {
+          effectiveTtsProviderId = serverTtsIds[0] as typeof settings.ttsProviderId;
+          // Use default voice for the server-configured provider
+          const { DEFAULT_TTS_VOICES } = await import('@/lib/audio/constants');
+          effectiveTtsVoice = DEFAULT_TTS_VOICES[effectiveTtsProviderId] || 'Cherry';
+        } else {
+          return; // No server TTS available either
+        }
+      } else {
+        return;
+      }
+    } catch {
+      return;
+    }
+  }
+
+  const ttsProviderConfig = settings.ttsProvidersConfig?.[effectiveTtsProviderId];
   const response = await fetch('/api/generate/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       text,
       audioId,
-      ttsProviderId: settings.ttsProviderId,
-      ttsVoice: voiceOverride || settings.ttsVoice,
+      ttsProviderId: effectiveTtsProviderId,
+      ttsVoice: effectiveTtsVoice,
       ttsSpeed: settings.ttsSpeed,
       ttsApiKey: ttsProviderConfig?.apiKey || undefined,
       ttsBaseUrl: ttsProviderConfig?.baseUrl || undefined,

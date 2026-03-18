@@ -12,6 +12,7 @@ import type {
 import { generateWithSeedance, testSeedanceConnectivity } from './adapters/seedance-adapter';
 import { generateWithKling, testKlingConnectivity } from './adapters/kling-adapter';
 import { generateWithVeo, testVeoConnectivity } from './adapters/veo-adapter';
+import { generateWithWanxiang, testWanxiangConnectivity } from './adapters/wanxiang-adapter';
 
 export const VIDEO_PROVIDERS: Record<VideoProviderId, VideoProviderConfig> = {
   seedance: {
@@ -74,6 +75,23 @@ export const VIDEO_PROVIDERS: Record<VideoProviderId, VideoProviderConfig> = {
     supportedAspectRatios: ['16:9', '1:1', '9:16'],
     maxDuration: 20,
   },
+  wanxiang: {
+    id: 'wanxiang',
+    name: 'Wanxiang',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://dashscope.aliyuncs.com',
+    models: [
+      { id: 'wan2.6-t2v', name: 'Wan 2.6 T2V' },
+      { id: 'wan2.5-t2v-preview', name: 'Wan 2.5 T2V Preview' },
+      { id: 'wan2.2-t2v-plus', name: 'Wan 2.2 T2V Plus' },
+      { id: 'wanx2.1-t2v-turbo', name: 'Wanx 2.1 Turbo (Legacy)' },
+      { id: 'wanx2.1-t2v-plus', name: 'Wanx 2.1 Plus (Legacy)' },
+    ],
+    supportedAspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
+    supportedDurations: [5, 10],
+    supportedResolutions: ['720p', '1080p'],
+    maxDuration: 10,
+  },
 };
 
 export async function testVideoConnectivity(
@@ -86,6 +104,8 @@ export async function testVideoConnectivity(
       return testKlingConnectivity(config);
     case 'veo':
       return testVeoConnectivity(config);
+    case 'wanxiang':
+      return testWanxiangConnectivity(config);
     default:
       return {
         success: false,
@@ -149,6 +169,8 @@ export async function generateVideo(
       return generateWithKling(config, options);
     case 'veo':
       return generateWithVeo(config, options);
+    case 'wanxiang':
+      return generateWithWanxiang(config, options);
     default:
       throw new Error(`Unsupported video provider: ${config.providerId}`);
   }

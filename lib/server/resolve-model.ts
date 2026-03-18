@@ -49,7 +49,7 @@ export function resolveModel(params: {
     apiKey,
     baseUrl,
     proxy,
-    providerType: params.providerType as 'openai' | 'anthropic' | 'google' | undefined,
+    providerType: params.providerType as 'openai' | 'anthropic' | 'google' | 'bedrock' | undefined,
     requiresApiKey: params.requiresApiKey,
   });
 

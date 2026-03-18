@@ -302,6 +302,7 @@ const getDefaultVideoConfig = () => ({
     kling: { apiKey: '', baseUrl: '', enabled: false },
     veo: { apiKey: '', baseUrl: '', enabled: false },
     sora: { apiKey: '', baseUrl: '', enabled: false },
+    wanxiang: { apiKey: '', baseUrl: '', enabled: false },
   } as Record<VideoProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -346,6 +347,16 @@ function ensureBuiltInProviders(state: Partial<SettingsState>): void {
         requiresApiKey: existing.requiresApiKey ?? provider.requiresApiKey,
         isBuiltIn: existing.isBuiltIn ?? true,
       };
+    }
+  });
+}
+
+function ensureBuiltInVideoProviders(state: Partial<SettingsState>): void {
+  if (!state.videoProvidersConfig) return;
+  const defaultConfig = getDefaultVideoConfig().videoProvidersConfig;
+  (Object.keys(defaultConfig) as VideoProviderId[]).forEach((pid) => {
+    if (!state.videoProvidersConfig![pid]) {
+      state.videoProvidersConfig![pid] = defaultConfig[pid];
     }
   });
 }
@@ -947,6 +958,8 @@ export const useSettingsStore = create<SettingsState>()(
 
         // Ensure providersConfig has all built-in providers (also in merge below)
         ensureBuiltInProviders(state);
+        // Ensure videoProvidersConfig has all built-in video providers
+        ensureBuiltInVideoProviders(state);
 
         // Migrate from old ttsModel to new ttsProviderId
         if (state.ttsModel && !state.ttsProviderId) {
@@ -1045,6 +1058,7 @@ export const useSettingsStore = create<SettingsState>()(
       merge: (persistedState, currentState) => {
         const merged = { ...currentState, ...(persistedState as object) };
         ensureBuiltInProviders(merged as Partial<SettingsState>);
+        ensureBuiltInVideoProviders(merged as Partial<SettingsState>);
         return merged as SettingsState;
       },
     },

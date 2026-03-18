@@ -837,6 +837,67 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       },
     ],
   },
+
+  bedrock: {
+    id: 'bedrock',
+    name: 'Amazon Bedrock',
+    type: 'bedrock',
+    requiresApiKey: false,
+    icon: '/logos/bedrock.svg',
+    models: [
+      {
+        id: 'eu.anthropic.claude-sonnet-4-6',
+        name: 'Claude Sonnet 4.6 (EU)',
+        contextWindow: 200000,
+        outputWindow: 128000,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          vision: true,
+          thinking: {
+            toggleable: true,
+            budgetAdjustable: true,
+            defaultEnabled: false,
+          },
+        },
+      },
+      {
+        id: 'eu.anthropic.claude-3-5-sonnet-20241022-v2:0',
+        name: 'Claude 3.5 Sonnet v2 (EU)',
+        contextWindow: 200000,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'eu.anthropic.claude-3-5-haiku-20241022-v1:0',
+        name: 'Claude 3.5 Haiku (EU)',
+        contextWindow: 200000,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
+        name: 'Claude 3.5 Sonnet v2',
+        contextWindow: 200000,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'anthropic.claude-3-5-haiku-20241022-v1:0',
+        name: 'Claude 3.5 Haiku',
+        contextWindow: 200000,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'anthropic.claude-3-haiku-20240307-v1:0',
+        name: 'Claude 3 Haiku',
+        contextWindow: 200000,
+        outputWindow: 4096,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+    ],
+  },
 };
 
 /**
@@ -1022,6 +1083,21 @@ export function getModel(config: ModelConfig): ModelWithInfo {
       }
       const google = createGoogleGenerativeAI(googleOptions);
       model = google.chat(config.modelId);
+      break;
+    }
+
+    case 'bedrock': {
+      // Dynamic require to avoid bundling AWS SDK on the client side
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { createAmazonBedrock } = require('@ai-sdk/amazon-bedrock');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { fromNodeProviderChain } = require('@aws-sdk/credential-providers');
+      const bedrockRegion = process.env.AWS_REGION || 'eu-west-1';
+      const bedrockProvider = createAmazonBedrock({
+        region: bedrockRegion,
+        credentialProvider: fromNodeProviderChain(),
+      });
+      model = bedrockProvider(config.modelId);
       break;
     }
 
