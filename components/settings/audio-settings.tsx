@@ -840,6 +840,11 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
         </div>
       </div>
 
+      {/* Regenerate TTS for current classroom */}
+      <div className="pt-4 border-t">
+        <RegenerateTTSButton />
+      </div>
+
       {/* ASR Section */}
       <div className="space-y-4 pt-4 border-t">
         <div
@@ -1078,6 +1083,98 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Regenerate TTS Button ───────────────────────────────────────────
+
+function RegenerateTTSButton() {
+  const { t } = useI18n();
+  const [regenerating, setRegenerating] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setResult(null);
+
+    try {
+      // Dynamic import to avoid circular deps
+      const { useStageStore } = await import('@/lib/store');
+      const { generateTTSForScene } = await import('@/lib/hooks/use-scene-generator');
+      const { db } = await import('@/lib/utils/database');
+
+      const scenes = useStageStore.getState().scenes;
+      if (scenes.length === 0) {
+        setResult({ success: false, message: 'No classroom open. Open a classroom first.' });
+        setRegenerating(false);
+        return;
+      }
+
+      // Delete existing TTS audio for these scenes
+      const speechActions = scenes.flatMap(
+        (s) => (s.actions || []).filter((a) => a.type === 'speech'),
+      );
+      for (const action of speechActions) {
+        const audioId = `tts_${action.id}`;
+        await db.audioFiles.delete(audioId).catch(() => {});
+      }
+
+      // Regenerate TTS for all scenes
+      let totalFailed = 0;
+      for (const scene of scenes) {
+        const res = await generateTTSForScene(scene);
+        totalFailed += res.failedCount;
+      }
+
+      // Save updated scenes (with new audioIds)
+      await useStageStore.getState().saveToStorage();
+
+      if (totalFailed > 0) {
+        setResult({ success: false, message: `Regenerated with ${totalFailed} failures. Some audio may be missing.` });
+      } else {
+        setResult({ success: true, message: `Regenerated voice for ${speechActions.length} speech actions.` });
+      }
+    } catch (err) {
+      setResult({ success: false, message: err instanceof Error ? err.message : 'Failed to regenerate.' });
+    }
+
+    setRegenerating(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full rounded-lg"
+        onClick={handleRegenerate}
+        disabled={regenerating}
+      >
+        {regenerating ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Regenerating voice...
+          </>
+        ) : (
+          <>
+            <Volume2 className="h-4 w-4 mr-2" />
+            Regenerate classroom voice
+          </>
+        )}
+      </Button>
+      {result && (
+        <p className={cn(
+          'text-xs px-2',
+          result.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
+        )}>
+          {result.success ? <CheckCircle2 className="inline h-3 w-3 mr-1" /> : <XCircle className="inline h-3 w-3 mr-1" />}
+          {result.message}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground/50 px-2">
+        Re-generates all speech audio in the current classroom using the selected voice and provider. Useful after changing voice settings.
+      </p>
     </div>
   );
 }
