@@ -18,6 +18,7 @@ import {
   Monitor,
   BotOff,
   ChevronUp,
+  BookOpen,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { createLogger } from '@/lib/logger';
@@ -329,6 +330,18 @@ function HomePage() {
         ref={toolbarRef}
         className="fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
       >
+        {/* Course Library */}
+        <button
+          onClick={() => router.push('/library')}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+          title="Course Library"
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Library</span>
+        </button>
+
+        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
+
         {/* Language Selector */}
         <div className="relative">
           <button

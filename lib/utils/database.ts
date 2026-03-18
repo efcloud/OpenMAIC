@@ -166,6 +166,19 @@ export interface GeneratedAgentRecord {
   createdAt: number;
 }
 
+/**
+ * Course table - Course (collection of stages/lessons)
+ */
+export interface CourseRecord {
+  id: string;
+  name: string;
+  description?: string;
+  coverImage?: string;
+  lessons: Array<{ stageId: string; title?: string; order: number }>;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** Build the compound primary key for mediaFiles: `${stageId}:${elementId}` */
 export function mediaFileKey(stageId: string, elementId: string): string {
   return `${stageId}:${elementId}`;
@@ -174,7 +187,7 @@ export function mediaFileKey(stageId: string, elementId: string): string {
 // ==================== Database Definition ====================
 
 const DATABASE_NAME = 'MAIC-Database';
-const _DATABASE_VERSION = 8;
+const _DATABASE_VERSION = 9;
 
 /**
  * MAIC Database Instance
@@ -191,6 +204,7 @@ class MAICDatabase extends Dexie {
   stageOutlines!: EntityTable<StageOutlinesRecord, 'stageId'>;
   mediaFiles!: EntityTable<MediaFileRecord, 'id'>;
   generatedAgents!: EntityTable<GeneratedAgentRecord, 'id'>;
+  courses!: EntityTable<CourseRecord, 'id'>;
 
   constructor() {
     super(DATABASE_NAME);
@@ -307,6 +321,21 @@ class MAICDatabase extends Dexie {
       stageOutlines: 'stageId',
       mediaFiles: 'id, stageId, [stageId+type]',
       generatedAgents: 'id, stageId',
+    });
+
+    // Version 9: Add courses table for course library
+    this.version(9).stores({
+      stages: 'id, updatedAt',
+      scenes: 'id, stageId, order, [stageId+order]',
+      audioFiles: 'id, createdAt',
+      imageFiles: 'id, createdAt',
+      snapshots: '++id',
+      chatSessions: 'id, stageId, [stageId+createdAt]',
+      playbackState: 'stageId',
+      stageOutlines: 'stageId',
+      mediaFiles: 'id, stageId, [stageId+type]',
+      generatedAgents: 'id, stageId',
+      courses: 'id, updatedAt',
     });
   }
 }
@@ -441,5 +470,6 @@ export async function getDatabaseStats() {
     stageOutlines: await db.stageOutlines.count(),
     mediaFiles: await db.mediaFiles.count(),
     generatedAgents: await db.generatedAgents.count(),
+    courses: await db.courses.count(),
   };
 }
