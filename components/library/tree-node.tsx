@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight,
@@ -9,6 +9,7 @@ import {
   Pencil,
   Play,
   Trash2,
+  Plus,
 } from 'lucide-react';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -43,7 +44,7 @@ const DEPTH_ICONS = [
 
 function getDepthIcon(depth: number): string {
   if (depth < DEPTH_ICONS.length) return DEPTH_ICONS[depth];
-  return '\u{1F4CE}'; // 4+: Group
+  return '\u{1F4CE}';
 }
 
 export function TreeNode({
@@ -57,7 +58,7 @@ export function TreeNode({
   const {
     attributes,
     listeners,
-    setNodeRef: setSortableRef,
+    setNodeRef,
     transform,
     transition,
     isDragging,
@@ -65,18 +66,12 @@ export function TreeNode({
 
   const isGroup = node.type === 'group';
 
-  // Droppable zone for group nodes (allows nesting)
-  const { setNodeRef: setDroppableRef, isOver } = useDroppable({
-    id: `drop-${node.id}`,
-    disabled: !isGroup,
-  });
-
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
 
-  // --- Inline title editing (Issue 3) ---
+  // --- Inline title editing ---
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(node.title);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -110,17 +105,11 @@ export function TreeNode({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        commitEdit();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelEdit();
-      }
+      if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
     },
     [commitEdit, cancelEdit],
   );
-  // --- End inline editing ---
 
   const handleToggleCollapse = useCallback(() => {
     useCourseLibraryStore
@@ -135,33 +124,20 @@ export function TreeNode({
   const children = isGroup ? (node.children ?? []) : [];
   const sortedChildren = [...children].sort((a, b) => a.order - b.order);
 
-  // Lesson: resolve stage metadata
   const stageMeta = node.stageId ? stageNames.get(node.stageId) : undefined;
   const displayTitle = isGroup
     ? node.title
     : stageMeta?.firstSceneTitle ?? stageMeta?.name ?? node.title;
 
-  // Combine sortable + droppable refs for group nodes
-  const combinedRef = useCallback(
-    (el: HTMLElement | null) => {
-      setSortableRef(el);
-      if (isGroup) {
-        setDroppableRef(el);
-      }
-    },
-    [setSortableRef, setDroppableRef, isGroup],
-  );
-
   return (
-    <div ref={combinedRef} style={style}>
+    <div ref={setNodeRef} style={style}>
+      {/* Node row */}
       <div
         className={cn(
           'group flex items-center gap-2 rounded-xl border bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm px-3 py-2 transition-all',
           isDragging
             ? 'border-violet-400/60 shadow-lg shadow-violet-500/10 z-50'
-            : isOver && isGroup
-              ? 'border-violet-500 bg-violet-50/60 dark:bg-violet-950/30 shadow-md shadow-violet-500/10'
-              : 'border-border/50 hover:border-border/80',
+            : 'border-border/50 hover:border-border/80',
         )}
         style={{ paddingLeft: `${depth * 24 + 12}px` }}
       >
@@ -201,36 +177,36 @@ export function TreeNode({
           {isEditing ? (
             <input
               ref={inputRef}
-              type="text"
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={commitEdit}
-              className="w-full text-sm font-medium text-foreground/90 bg-transparent border-b border-violet-400 outline-none py-0"
+              className="w-full text-sm font-medium text-foreground bg-transparent border-b-2 border-violet-400 outline-none py-0.5"
             />
           ) : (
-            <p
-              className="text-sm font-medium text-foreground/90 truncate cursor-default"
-              onDoubleClick={handleDoubleClick}
-            >
-              {displayTitle}
-            </p>
-          )}
-          {!isGroup && stageMeta && !isEditing && (
-            <p className="text-xs text-muted-foreground/50 mt-0.5">
-              {stageMeta.sceneCount} scene{stageMeta.sceneCount !== 1 ? 's' : ''}
-            </p>
-          )}
-          {isGroup && !isEditing && (
-            <p className="text-xs text-muted-foreground/40 mt-0.5">
-              {children.length} item{children.length !== 1 ? 's' : ''}
-            </p>
+            <>
+              <p
+                className="text-sm font-medium text-foreground/90 truncate cursor-text"
+                onDoubleClick={handleDoubleClick}
+              >
+                {displayTitle}
+              </p>
+              {!isGroup && stageMeta && (
+                <p className="text-xs text-muted-foreground/50 mt-0.5">
+                  {stageMeta.sceneCount} scene{stageMeta.sceneCount !== 1 ? 's' : ''}
+                </p>
+              )}
+              {isGroup && (
+                <p className="text-xs text-muted-foreground/40 mt-0.5">
+                  {children.length} item{children.length !== 1 ? 's' : ''}
+                </p>
+              )}
+            </>
           )}
         </div>
 
         {/* Actions */}
         <div className="shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {/* Enter button (lessons only) */}
           {!isGroup && node.stageId && (
             <Button
               variant="ghost"
@@ -242,7 +218,6 @@ export function TreeNode({
             </Button>
           )}
 
-          {/* Context menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -270,10 +245,10 @@ export function TreeNode({
         </div>
       </div>
 
-      {/* Children (groups only, animated) */}
+      {/* Group children + drop zone */}
       {isGroup && (
         <AnimatePresence initial={false}>
-          {!node.collapsed && sortedChildren.length > 0 && (
+          {!node.collapsed && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
@@ -299,10 +274,47 @@ export function TreeNode({
                   ))}
                 </div>
               </SortableContext>
+
+              {/* Drop zone at bottom of group — separate from sortable */}
+              <GroupDropZone nodeId={node.id} depth={depth} />
             </motion.div>
           )}
         </AnimatePresence>
       )}
+    </div>
+  );
+}
+
+/**
+ * Dedicated drop zone inside a group — a separate droppable element
+ * that doesn't conflict with the sortable wrapper.
+ */
+function GroupDropZone({ nodeId, depth }: { nodeId: string; depth: number }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `drop-${nodeId}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'mx-2 my-1 rounded-lg border-2 border-dashed transition-all duration-200',
+        isOver
+          ? 'border-violet-400 bg-violet-50/40 dark:bg-violet-950/30 py-3'
+          : 'border-transparent py-1',
+      )}
+      style={{ marginLeft: `${(depth + 1) * 24 + 12}px` }}
+    >
+      <p
+        className={cn(
+          'text-center text-xs transition-opacity duration-200',
+          isOver
+            ? 'text-violet-500 opacity-100'
+            : 'text-muted-foreground/0 opacity-0',
+        )}
+      >
+        Drop here to add
+      </p>
     </div>
   );
 }
