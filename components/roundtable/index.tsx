@@ -24,6 +24,7 @@ import { useSettingsStore, PLAYBACK_SPEEDS } from '@/lib/store/settings';
 import { ProactiveCard } from '@/components/chat/proactive-card';
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card';
 import { useAgentRegistry } from '@/lib/orchestration/registry/store';
+import { TEACHER_AVATAR } from '@/lib/constants/avatars';
 import type { DiscussionAction } from '@/lib/types/action';
 import type { EngineMode, PlaybackView } from '@/lib/playback';
 import type { Participant } from '@/lib/types/roundtable';
@@ -76,7 +77,7 @@ interface RoundtableProps {
   readonly onWhiteboardClose?: () => void;
 }
 
-const DEFAULT_TEACHER_AVATAR = '/avatars/teacher.png';
+const DEFAULT_TEACHER_AVATAR = TEACHER_AVATAR;
 const DEFAULT_USER_AVATAR = '/avatars/user.png';
 
 /** Render avatar as <img> for URLs or as emoji text span */

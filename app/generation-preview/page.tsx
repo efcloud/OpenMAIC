@@ -21,6 +21,7 @@ import {
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { db } from '@/lib/utils/database';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
+import { TEACHER_AVATAR } from '@/lib/constants/avatars';
 import { nanoid } from 'nanoid';
 import type { Stage } from '@/lib/types/stage';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
@@ -387,7 +388,7 @@ function GenerationPreviewContent() {
             '/avatars/curious-2.png',
             '/avatars/note-taker.png',
             '/avatars/note-taker-2.png',
-            '/avatars/teacher.png',
+            TEACHER_AVATAR,
             '/avatars/teacher-2.png',
             '/avatars/thinker.png',
             '/avatars/thinker-2.png',

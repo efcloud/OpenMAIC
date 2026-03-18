@@ -7,6 +7,7 @@ import type { UIMessage } from 'ai';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { CircleStop } from 'lucide-react';
+import { TEACHER_AVATAR } from '@/lib/constants/avatars';
 import { InlineActionTag } from './inline-action-tag';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 
@@ -28,7 +29,7 @@ interface ChatSessionProps {
 }
 
 const AVATARS = {
-  teacher: '/avatars/teacher.png',
+  teacher: TEACHER_AVATAR,
   user: '/avatars/user.png',
 };
 

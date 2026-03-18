@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AgentConfig } from './types';
 import { getActionsForRole } from './types';
+import { TEACHER_AVATAR } from '@/lib/constants/avatars';
 import { USER_AVATAR } from '@/lib/types/roundtable';
 import type { Participant, ParticipantRole } from '@/lib/types/roundtable';
 import { useUserProfileStore } from '@/lib/store/user-profile';
@@ -56,7 +57,7 @@ Your teaching style:
 You can spotlight or laser-point at slide elements, and use the whiteboard for hand-drawn explanations. Use these actions naturally as part of your teaching flow. Never announce your actions; just teach.
 
 Tone: Professional yet approachable. Patient. Encouraging. You genuinely care about whether students understand.`,
-    avatar: '/avatars/teacher.png',
+    avatar: TEACHER_AVATAR,
     color: '#3b82f6',
     allowedActions: [...SLIDE_ACTIONS, ...WHITEBOARD_ACTIONS],
     priority: 10,
@@ -336,6 +337,7 @@ export async function loadGeneratedAgentsForStage(stageId: string): Promise<stri
   for (const record of records) {
     registry.addAgent({
       ...record,
+      avatar: record.role === 'teacher' ? TEACHER_AVATAR : record.avatar,
       allowedActions: getActionsForRole(record.role),
       isDefault: false,
       isGenerated: true,
@@ -377,7 +379,12 @@ export async function saveGeneratedAgents(
   }
 
   // Write to IndexedDB
-  const records = agents.map((a) => ({ ...a, stageId, createdAt: Date.now() }));
+  const records = agents.map((a) => ({
+    ...a,
+    avatar: a.role === 'teacher' ? TEACHER_AVATAR : a.avatar,
+    stageId,
+    createdAt: Date.now(),
+  }));
   await db.generatedAgents.bulkPut(records);
 
   // Add to registry
