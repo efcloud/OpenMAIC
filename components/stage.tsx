@@ -30,7 +30,7 @@ import {
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { useAvatarStore } from '@/lib/store/avatar';
-import { onLiveSpeechTick, stopLiveTTS, isLiveTTSActive } from '@/lib/audio/live-tts';
+import { onLiveSpeechTick, stopLiveTTS, isLiveTTSActive, waitForTTSNearEnd } from '@/lib/audio/live-tts';
 
 /**
  * Stage Component
@@ -858,21 +858,30 @@ export function Stage({
           // Use queueMicrotask to let any pending scene-switch reset settle first
           queueMicrotask(() => {
             if (sceneEpochRef.current !== epoch) return; // stale — scene changed
-            setLiveSpeech(text);
-            if (agentId !== undefined) {
-              setSpeakingAgentId(agentId);
-            }
-            // Live TTS: detect sentence boundaries and speak as they arrive
+
+            // Feed TTS system regardless of display gating
             onLiveSpeechTick(text ?? null, agentId ?? null);
+
             if (text !== null || agentId) {
               setChatIsStreaming(true);
               setChatSessionType(chatAreaRef.current?.getActiveSessionType?.() ?? null);
               setIsTopicPending(false);
-              // Avatar mode is now driven by the TTS audio queue (live-tts.ts)
-              // so we don't set it here — prevents fighting between text stream and audio
+
+              // If previous agent's TTS is still playing, delay showing the new
+              // agent's text in the roundtable until audio is nearly done.
+              // This keeps text and audio in sync — feels like a real conversation.
+              if (isLiveTTSActive() && agentId !== undefined && agentId !== null) {
+                waitForTTSNearEnd().then(() => {
+                  if (sceneEpochRef.current !== epoch) return;
+                  setLiveSpeech(text);
+                  if (agentId !== undefined) setSpeakingAgentId(agentId);
+                });
+              } else {
+                setLiveSpeech(text);
+                if (agentId !== undefined) setSpeakingAgentId(agentId);
+              }
             } else if (text === null && agentId === null) {
-              // If TTS is still playing the previous agent's audio, delay clearing
-              // so the text stays visible in sync with what the user hears.
+              // Agent turn ended — keep text visible until TTS finishes
               if (isLiveTTSActive()) {
                 const poll = setInterval(() => {
                   if (!isLiveTTSActive()) {
@@ -882,14 +891,10 @@ export function Stage({
                     setSpeakingAgentId(null);
                   }
                 }, 200);
-                // Safety: clear after 30s max
                 setTimeout(() => clearInterval(poll), 30000);
               } else {
                 setChatIsStreaming(false);
               }
-              // Don't clear chatSessionType here — it's needed by the stop
-              // button when director cues user (cue_user → done → liveSpeech null).
-              // It gets properly cleared in doSessionCleanup and scene change.
             }
           });
         }}

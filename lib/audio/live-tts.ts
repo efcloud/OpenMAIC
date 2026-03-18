@@ -33,6 +33,37 @@ export function isLiveTTSActive(): boolean {
   return isPlaying || queue.length > 0;
 }
 
+/**
+ * Returns a promise that resolves when the current TTS queue is nearly done.
+ * "Nearly done" = current audio is in its last 1.5s or queue is empty.
+ * Resolves immediately if nothing is playing. Times out after 15s.
+ */
+export function waitForTTSNearEnd(): Promise<void> {
+  if (!isPlaying || queue.length === 0) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 15000);
+    const poll = setInterval(() => {
+      if (!isPlaying || queue.length === 0) {
+        clearInterval(poll);
+        clearTimeout(timeout);
+        resolve();
+        return;
+      }
+      // Check if current audio is near the end
+      const current = queue[0]?.audio;
+      if (current && !isNaN(current.duration) && current.duration > 0) {
+        const remaining = current.duration - current.currentTime;
+        if (remaining < 1.5 && queue.length <= 1) {
+          clearInterval(poll);
+          clearTimeout(timeout);
+          resolve();
+        }
+      }
+    }, 200);
+  });
+}
+
 /** Call on each onLiveSpeech tick */
 export function onLiveSpeechTick(text: string | null, agentId: string | null) {
   // Agent switch signal (text=null, agentId=new) — flush previous agent's remaining text
