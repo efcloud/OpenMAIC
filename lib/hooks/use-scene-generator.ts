@@ -274,14 +274,18 @@ async function generateTTSForScene(
     const audioId = `tts_${action.id}`;
     action.audioId = audioId;
     try {
-      // Use per-agent voice if the speech action has an agentId
+      // Resolve voice: action.agentId → agent.voiceId → teacher.voiceId → global
+      const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
       let voiceOverride: string | undefined;
       if (action.agentId) {
-        const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
         const agent = useAgentRegistry.getState().getAgent(action.agentId);
         voiceOverride = agent?.voiceId || action.voice;
       } else if (action.voice) {
         voiceOverride = action.voice;
+      } else {
+        // No agentId on action (lecture speeches) — use teacher's voice
+        const teacher = useAgentRegistry.getState().listAgents().find((a) => a.role === 'teacher');
+        voiceOverride = teacher?.voiceId;
       }
       await generateAndStoreTTS(audioId, action.text, signal, voiceOverride);
     } catch (error) {
