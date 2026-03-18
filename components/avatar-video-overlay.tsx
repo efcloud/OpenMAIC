@@ -2,7 +2,71 @@
 
 import { useRef, useEffect, useCallback } from 'react';
 import { useAvatarStore } from '@/lib/store/avatar';
+import { useSettingsStore } from '@/lib/store/settings';
 import { AVATAR_LOOPS, AVATAR_EMOTIONS } from '@/lib/constants/avatars';
+
+const WELCOME_MESSAGE =
+  'Hello, welcome to the Efekta classroom experience. Please use the text box to let me know what you would like to learn today.';
+
+/**
+ * Speak the welcome message via TTS if a provider is configured.
+ * Falls back to browser-native TTS. Skipped if TTS is muted or no keys.
+ */
+async function speakWelcome() {
+  const settings = useSettingsStore.getState();
+  if (settings.ttsMuted) return;
+
+  // Browser-native fallback
+  if (settings.ttsProviderId === 'browser-native-tts') {
+    if (!('speechSynthesis' in window)) return;
+    const utterance = new SpeechSynthesisUtterance(WELCOME_MESSAGE);
+    utterance.rate = settings.ttsSpeed;
+    window.speechSynthesis.speak(utterance);
+    return;
+  }
+
+  // Server-side TTS — check if provider has API key configured
+  const providerConfig = settings.ttsProvidersConfig[settings.ttsProviderId];
+  if (!providerConfig?.isServerConfigured && !providerConfig?.apiKey) return;
+
+  try {
+    const response = await fetch('/api/generate/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: WELCOME_MESSAGE,
+        audioId: `welcome-${Date.now()}`,
+        ttsProviderId: settings.ttsProviderId,
+        ttsVoice: settings.ttsVoice,
+        ttsSpeed: settings.ttsSpeed,
+        ttsApiKey: providerConfig?.apiKey || undefined,
+        ttsBaseUrl: providerConfig?.baseUrl || undefined,
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const { base64, format } = await response.json();
+    if (!base64) return;
+
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    const mimeType = format === 'wav' ? 'audio/wav' : format === 'ogg' ? 'audio/ogg' : 'audio/mp3';
+    const blob = new Blob([bytes], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+
+    const audio = new Audio(url);
+    audio.volume = settings.ttsVolume;
+    audio.addEventListener('ended', () => URL.revokeObjectURL(url));
+    await audio.play();
+  } catch {
+    // Silently fail — welcome is a nice-to-have, not critical
+  }
+}
 
 /**
  * Avatar Video Overlay
@@ -10,7 +74,7 @@ import { AVATAR_LOOPS, AVATAR_EMOTIONS } from '@/lib/constants/avatars';
  * Always-on-top animated avatar that syncs with TTS/speech state.
  *
  * State machine:
- *   hello (one-shot) → listening (loop)
+ *   hello (one-shot + welcome TTS) → listening (loop)
  *   listening ↔ speaking (loop, driven by PlaybackEngine)
  *   any state → emotion (one-shot) → return to previous loop
  */
@@ -22,11 +86,20 @@ export function AvatarVideoOverlay() {
 
   const loopRef = useRef<HTMLVideoElement>(null);
   const emotionRef = useRef<HTMLVideoElement>(null);
+  const welcomeSpokenRef = useRef(false);
 
   // Determine which video source to show
   const loopSrc = AVATAR_LOOPS[mode] || AVATAR_LOOPS.listening;
   const emotionSrc = emotion ? AVATAR_EMOTIONS[emotion] : null;
   const isPlayingEmotion = !!emotionSrc;
+
+  // Speak welcome message once on mount (when hello clip starts)
+  useEffect(() => {
+    if (mode === 'hello' && !welcomeSpokenRef.current) {
+      welcomeSpokenRef.current = true;
+      speakWelcome();
+    }
+  }, [mode]);
 
   // When the hello clip finishes, switch to listening
   const handleLoopEnded = useCallback(() => {
@@ -45,7 +118,6 @@ export function AvatarVideoOverlay() {
     const video = loopRef.current;
     if (!video) return;
 
-    // Update source if it changed
     const expectedSrc = AVATAR_LOOPS[mode] || AVATAR_LOOPS.listening;
     if (!video.currentSrc.endsWith(expectedSrc)) {
       video.src = expectedSrc;

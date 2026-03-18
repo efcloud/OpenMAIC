@@ -30,6 +30,7 @@ import {
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { useAvatarStore } from '@/lib/store/avatar';
+import { onLiveSpeechTick, stopLiveTTS } from '@/lib/audio/live-tts';
 
 /**
  * Stage Component
@@ -186,6 +187,7 @@ export function Stage({
     setIsTopicPending(false);
     setChatIsStreaming(false);
     setChatSessionType(null);
+    stopLiveTTS();
   }, []);
 
   /** Full scene reset (scene switch) — resetLiveState + lecture/visual state */
@@ -197,6 +199,7 @@ export function Stage({
     setShowEndFlash(false);
     setActiveBubbleId(null);
     setDiscussionTrigger(null);
+    useAvatarStore.getState().setMode('listening');
   }, [resetLiveState]);
 
   /**
@@ -265,6 +268,10 @@ export function Stage({
     const engine = new PlaybackEngine([currentScene], actionEngine, audioPlayerRef.current, {
       onModeChange: (mode) => {
         setEngineMode(mode);
+        // Avatar reacts to engine state changes
+        if (mode === 'paused' || mode === 'idle') {
+          useAvatarStore.getState().setMode('listening');
+        }
       },
       onSceneChange: (_sceneId) => {
         // Scene change handled by engine
@@ -851,12 +858,17 @@ export function Stage({
             if (agentId !== undefined) {
               setSpeakingAgentId(agentId);
             }
+            // Live TTS: accumulate text while streaming, speak when agent turn ends
+            onLiveSpeechTick(text ?? null, agentId ?? null);
             if (text !== null || agentId) {
               setChatIsStreaming(true);
               setChatSessionType(chatAreaRef.current?.getActiveSessionType?.() ?? null);
               setIsTopicPending(false);
+              // Avatar speaks when agent is streaming in discussion/QA
+              useAvatarStore.getState().setMode('speaking');
             } else if (text === null && agentId === null) {
               setChatIsStreaming(false);
+              useAvatarStore.getState().setMode('listening');
               // Don't clear chatSessionType here — it's needed by the stop
               // button when director cues user (cue_user → done → liveSpeech null).
               // It gets properly cleared in doSessionCleanup and scene change.
