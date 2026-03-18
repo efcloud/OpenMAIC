@@ -217,6 +217,12 @@ async function queueSentence(sentence: string, agentId: string) {
   }
 }
 
+/** The teacher agent ID (default-1) or the first generated teacher */
+function isTeacherAgent(agentId: string): boolean {
+  const agent = useAgentRegistry.getState().getAgent(agentId);
+  return agent?.role === 'teacher';
+}
+
 function playNext() {
   // Clean up finished item
   if (queue.length > 0 && isPlaying) {
@@ -231,8 +237,13 @@ function playNext() {
   }
 
   isPlaying = true;
-  useAvatarStore.getState().setMode('speaking');
+  // Avatar only speaks when the teacher is talking — listens for other agents
   const next = queue[0];
+  if (isTeacherAgent(next.agentId)) {
+    useAvatarStore.getState().setMode('speaking');
+  } else {
+    useAvatarStore.getState().setMode('listening');
+  }
   next.audio.play().catch(() => playNext());
 }
 
