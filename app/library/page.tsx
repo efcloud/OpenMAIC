@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, X } from 'lucide-react';
+import { ArrowLeft, Plus, X, GripVertical } from 'lucide-react';
+import { DndContext, DragOverlay, closestCenter, type DragStartEvent, type DragEndEvent, useDroppable, useDraggable } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
 import { listStages, type StageListItem } from '@/lib/utils/stage-storage';
 import { CourseCard } from '@/components/library/course-card';
-import { UnassignedStages } from '@/components/library/unassigned-stages';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('Library');
@@ -22,11 +22,10 @@ export default function LibraryPage() {
   const [stages, setStages] = useState<StageListItem[]>([]);
   const [stagesLoaded, setStagesLoaded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [activeStageId, setActiveStageId] = useState<string | null>(null);
 
-  // Load courses and stages on mount
   useEffect(() => {
     useCourseLibraryStore.getState().loadCourses();
-
     listStages()
       .then((list) => {
         setStages(list);
@@ -38,7 +37,6 @@ export default function LibraryPage() {
       });
   }, []);
 
-  // Compute unassigned stages (not referenced in any course)
   const unassignedStages = useMemo(() => {
     const assignedIds = new Set<string>();
     for (const course of courses) {
@@ -49,10 +47,37 @@ export default function LibraryPage() {
     return stages.filter((s) => !assignedIds.has(s.id));
   }, [courses, stages]);
 
+  const activeStage = useMemo(
+    () => stages.find((s) => s.id === activeStageId),
+    [stages, activeStageId],
+  );
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveStageId(event.active.id as string);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveStageId(null);
+    const { active, over } = event;
+    if (!over) return;
+
+    const stageId = active.id as string;
+    const courseId = over.id as string;
+
+    // Verify the drop target is a course
+    const targetCourse = courses.find((c) => c.id === courseId);
+    if (!targetCourse) return;
+
+    // Don't add if already in this course
+    if (targetCourse.lessons.some((l) => l.stageId === stageId)) return;
+
+    useCourseLibraryStore.getState().addLesson(courseId, stageId);
+  }, [courses]);
+
   return (
     <div className="min-h-[100dvh] w-full bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex flex-col items-center p-4 md:p-8 overflow-x-hidden">
-      {/* Header */}
       <div className="w-full max-w-6xl">
+        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <Button
@@ -72,81 +97,166 @@ export default function LibraryPage() {
               </p>
             </div>
           </div>
-          <Button
-            onClick={() => setDialogOpen(true)}
-            className="gap-1.5 rounded-xl"
-          >
+          <Button onClick={() => setDialogOpen(true)} className="gap-1.5 rounded-xl">
             <Plus className="size-4" />
             New Course
           </Button>
         </div>
 
-        {/* Course Grid */}
-        {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <p className="text-sm text-muted-foreground/60">Loading courses...</p>
-          </div>
-        ) : courses.length === 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="flex flex-col items-center justify-center py-24 text-center"
-          >
-            <div className="size-16 rounded-2xl bg-gradient-to-br from-violet-100 to-blue-100 dark:from-violet-900/30 dark:to-blue-900/30 flex items-center justify-center mb-4">
-              <span className="text-2xl opacity-60">📚</span>
+        <DndContext collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          {/* Course Grid */}
+          {loading ? (
+            <div className="flex items-center justify-center py-24">
+              <p className="text-sm text-muted-foreground/60">Loading courses...</p>
             </div>
-            <p className="text-sm text-muted-foreground/70 max-w-sm">
-              No courses yet. Create one to organize your classrooms.
-            </p>
-          </motion.div>
-        ) : (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
-          >
-            {courses.map((course, i) => (
-              <motion.div
-                key={course.id}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05, duration: 0.35, ease: 'easeOut' }}
-              >
-                <CourseCard
+          ) : courses.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="flex flex-col items-center justify-center py-24 text-center"
+            >
+              <div className="size-16 rounded-2xl bg-gradient-to-br from-violet-100 to-blue-100 dark:from-violet-900/30 dark:to-blue-900/30 flex items-center justify-center mb-4">
+                <span className="text-2xl opacity-60">📚</span>
+              </div>
+              <p className="text-sm text-muted-foreground/70 max-w-sm">
+                No courses yet. Create one to organize your classrooms.
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5"
+            >
+              {courses.map((course, i) => (
+                <DroppableCourseCard
+                  key={course.id}
                   course={course}
+                  index={i}
+                  isOver={activeStageId !== null}
                   onOpen={(id) => router.push(`/library/${id}`)}
                   onDelete={(id) => useCourseLibraryStore.getState().deleteCourse(id)}
                 />
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
+              ))}
+            </motion.div>
+          )}
 
-        {/* Divider: Unassigned Classrooms */}
-        {stagesLoaded && (
-          <>
-            <div className="flex items-center gap-4 mt-12 mb-6">
-              <div className="flex-1 h-px bg-border/40" />
-              <span className="text-[13px] text-muted-foreground/60 select-none">
-                Unassigned Classrooms
-                {unassignedStages.length > 0 && (
-                  <span className="ml-1.5 text-[11px] tabular-nums opacity-60">
-                    {unassignedStages.length}
-                  </span>
-                )}
-              </span>
-              <div className="flex-1 h-px bg-border/40" />
-            </div>
+          {/* Unassigned Classrooms */}
+          {stagesLoaded && (
+            <>
+              <div className="flex items-center gap-4 mt-12 mb-6">
+                <div className="flex-1 h-px bg-border/40" />
+                <span className="text-[13px] text-muted-foreground/60 select-none">
+                  Unassigned Classrooms
+                  {unassignedStages.length > 0 && (
+                    <span className="ml-1.5 text-[11px] tabular-nums opacity-60">
+                      {unassignedStages.length}
+                    </span>
+                  )}
+                </span>
+                <div className="flex-1 h-px bg-border/40" />
+              </div>
 
-            <UnassignedStages stages={unassignedStages} />
-          </>
-        )}
+              {unassignedStages.length === 0 ? (
+                <div className="py-8 text-center text-sm text-muted-foreground/40">
+                  All classrooms are assigned to courses.
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                  {unassignedStages.map((stage) => (
+                    <DraggableStageCard key={stage.id} stage={stage} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Drag overlay — ghost card that follows the cursor */}
+          <DragOverlay>
+            {activeStage ? (
+              <div className="rounded-xl border border-violet-400/60 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-xl shadow-violet-500/10 px-4 py-3 text-sm font-medium text-foreground/90 max-w-[200px] truncate">
+                {activeStage.name}
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {/* Create Course Dialog */}
       <CreateCourseDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+    </div>
+  );
+}
+
+// ─── Droppable Course Card ─────────────────────────────────────────────
+
+function DroppableCourseCard({
+  course,
+  index,
+  isOver: isDragActive,
+  onOpen,
+  onDelete,
+}: {
+  course: { id: string; name: string; description?: string; lessons: Array<{ stageId: string; title?: string; order: number }>; updatedAt: number };
+  index: number;
+  isOver: boolean;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: course.id });
+
+  return (
+    <motion.div
+      ref={setNodeRef}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05, duration: 0.35, ease: 'easeOut' }}
+      className={cn(
+        'transition-all duration-200',
+        isOver && 'scale-[1.02]',
+        isDragActive && !isOver && 'opacity-80',
+      )}
+    >
+      <div className={cn(
+        'rounded-2xl border-2 border-dashed transition-all duration-200',
+        isOver
+          ? 'border-violet-400 bg-violet-50/30 dark:bg-violet-950/20'
+          : isDragActive
+            ? 'border-border/40'
+            : 'border-transparent',
+      )}>
+        <CourseCard course={course} onOpen={onOpen} onDelete={onDelete} />
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Draggable Stage Card ─────────────────────────────────────────────
+
+function DraggableStageCard({ stage }: { stage: StageListItem }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: stage.id,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      className={cn(
+        'group flex items-center gap-2.5 rounded-xl border border-border/50 bg-white/60 dark:bg-slate-900/60 backdrop-blur-sm px-3 py-2.5 cursor-grab active:cursor-grabbing select-none transition-all hover:border-violet-300/60 dark:hover:border-violet-700/40',
+        isDragging && 'opacity-30',
+      )}
+    >
+      <GripVertical className="size-3.5 text-muted-foreground/30 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground/90 truncate">{stage.name}</p>
+        <p className="text-[11px] text-muted-foreground/50">
+          {stage.sceneCount} scene{stage.sceneCount !== 1 ? 's' : ''}
+        </p>
+      </div>
     </div>
   );
 }
@@ -233,18 +343,10 @@ function CreateCourseDialog({
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
-              <Button
-                variant="ghost"
-                onClick={() => onOpenChange(false)}
-                className="rounded-xl"
-              >
+              <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-xl">
                 Cancel
               </Button>
-              <Button
-                onClick={handleCreate}
-                disabled={!name.trim()}
-                className="rounded-xl"
-              >
+              <Button onClick={handleCreate} disabled={!name.trim()} className="rounded-xl">
                 Create Course
               </Button>
             </div>
