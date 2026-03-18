@@ -832,7 +832,7 @@ export const DEFAULT_TTS_VOICES: Record<TTSProviderId, string> = {
   'openai-tts': 'alloy',
   'azure-tts': 'zh-CN-XiaoxiaoNeural',
   'glm-tts': 'tongtong',
-  'qwen-tts': 'Cherry',
+  'qwen-tts': 'Aiden',
   'browser-native-tts': 'default',
 };
 
