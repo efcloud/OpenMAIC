@@ -302,6 +302,7 @@ const getDefaultVideoConfig = () => ({
     kling: { apiKey: '', baseUrl: '', enabled: false },
     veo: { apiKey: '', baseUrl: '', enabled: false },
     sora: { apiKey: '', baseUrl: '', enabled: false },
+    wanxiang: { apiKey: '', baseUrl: '', enabled: false },
   } as Record<VideoProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 

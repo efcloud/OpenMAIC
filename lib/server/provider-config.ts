@@ -78,6 +78,7 @@ const VIDEO_ENV_MAP: Record<string, string> = {
   VIDEO_KLING: 'kling',
   VIDEO_VEO: 'veo',
   VIDEO_SORA: 'sora',
+  VIDEO_WANXIANG: 'wanxiang',
 };
 
 const WEB_SEARCH_ENV_MAP: Record<string, string> = {
