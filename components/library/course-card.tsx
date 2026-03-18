@@ -10,6 +10,8 @@ import {
   Folder,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
+import type { Slide } from '@/lib/types/slides';
 
 interface CourseCardProps {
   readonly course: {
@@ -19,6 +21,7 @@ interface CourseCardProps {
     lessons: Array<{ stageId: string; title?: string; order: number }>;
     updatedAt: number;
   };
+  readonly coverSlide?: Slide;
   readonly onOpen: (courseId: string) => void;
   readonly onDelete: (courseId: string) => void;
 }
@@ -35,7 +38,7 @@ function formatRelativeTime(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-export function CourseCard({ course, onOpen, onDelete }: CourseCardProps) {
+export function CourseCard({ course, coverSlide, onOpen, onDelete }: CourseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const lessonCount = course.lessons.length;
@@ -51,12 +54,19 @@ export function CourseCard({ course, onOpen, onDelete }: CourseCardProps) {
     >
       {/* Main card — click to open editor */}
       <div onClick={() => onOpen(course.id)} className="p-4 cursor-pointer">
-        {/* iOS-style folder grid preview */}
-        <div className="mb-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/60 dark:to-slate-800/30 p-3 aspect-[4/3] flex items-center justify-center">
-          {lessonCount === 0 ? (
+        {/* Cover thumbnail — slide preview or folder icon */}
+        <div className="mb-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/60 dark:to-slate-800/30 overflow-hidden aspect-[16/9] flex items-center justify-center">
+          {coverSlide ? (
+            <ThumbnailSlide
+              slide={coverSlide}
+              size={320}
+              viewportSize={coverSlide.viewportSize ?? 1000}
+              viewportRatio={coverSlide.viewportRatio ?? 0.5625}
+            />
+          ) : lessonCount === 0 ? (
             <Folder className="size-10 text-muted-foreground/20" />
           ) : (
-            <div className="grid grid-cols-3 gap-1.5 w-full h-full">
+            <div className="grid grid-cols-3 gap-1.5 p-3 w-full h-full">
               {previewLessons.map((lesson, i) => (
                 <div
                   key={lesson.stageId || i}
@@ -65,13 +75,6 @@ export function CourseCard({ course, onOpen, onDelete }: CourseCardProps) {
                   <FileText className="size-4 text-violet-400/60" />
                 </div>
               ))}
-              {lessonCount > 6 && (
-                <div className="rounded-lg bg-white/80 dark:bg-slate-700/50 border border-border/20 flex items-center justify-center">
-                  <span className="text-[10px] font-semibold text-muted-foreground/50">
-                    +{lessonCount - 5}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>

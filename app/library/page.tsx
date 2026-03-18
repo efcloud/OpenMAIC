@@ -16,9 +16,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
-import { listStages, type StageListItem } from '@/lib/utils/stage-storage';
+import { listStages, getFirstSlideByStages, type StageListItem } from '@/lib/utils/stage-storage';
 import { CourseCard } from '@/components/library/course-card';
 import { flattenLessons } from '@/lib/utils/course-tree-ops';
+import type { Slide } from '@/lib/types/slides';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('Library');
@@ -29,6 +30,7 @@ export default function LibraryPage() {
   const loading = useCourseLibraryStore((s) => s.loading);
 
   const [stages, setStages] = useState<StageListItem[]>([]);
+  const [thumbnails, setThumbnails] = useState<Record<string, Slide>>({});
   const [stagesLoaded, setStagesLoaded] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeStageId, setActiveStageId] = useState<string | null>(null);
@@ -36,9 +38,13 @@ export default function LibraryPage() {
   useEffect(() => {
     useCourseLibraryStore.getState().loadTrees();
     listStages()
-      .then((list) => {
+      .then(async (list) => {
         setStages(list);
         setStagesLoaded(true);
+        if (list.length > 0) {
+          const slides = await getFirstSlideByStages(list.map((s) => s.id));
+          setThumbnails(slides);
+        }
       })
       .catch((err) => {
         log.error('Failed to load stages:', err);
@@ -62,17 +68,24 @@ export default function LibraryPage() {
     [stages, activeStageId],
   );
 
-  // Map trees to CourseCard-compatible format
+  // Map trees to CourseCard-compatible format with cover thumbnail
   const courseCards = useMemo(
     () =>
-      trees.map((tree) => ({
-        id: tree.id,
-        name: tree.name,
-        description: tree.description,
-        lessonCount: flattenLessons(tree.root).length,
-        updatedAt: tree.updatedAt,
-      })),
-    [trees],
+      trees.map((tree) => {
+        const lessons = flattenLessons(tree.root);
+        // Use the first lesson's slide as cover
+        const firstStageId = lessons[0]?.stageId;
+        const coverSlide = firstStageId ? thumbnails[firstStageId] : undefined;
+        return {
+          id: tree.id,
+          name: tree.name,
+          description: tree.description,
+          lessonCount: lessons.length,
+          updatedAt: tree.updatedAt,
+          coverSlide,
+        };
+      }),
+    [trees, thumbnails],
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -236,7 +249,7 @@ function DroppableCourseCard({
   onOpen,
   onDelete,
 }: {
-  card: { id: string; name: string; description?: string; lessonCount: number; updatedAt: number };
+  card: { id: string; name: string; description?: string; lessonCount: number; updatedAt: number; coverSlide?: Slide };
   index: number;
   isDragActive: boolean;
   onOpen: (id: string) => void;
@@ -274,6 +287,7 @@ function DroppableCourseCard({
             lessons: Array(card.lessonCount).fill({ stageId: '', order: 0 }),
             updatedAt: card.updatedAt,
           }}
+          coverSlide={card.coverSlide}
           onOpen={onOpen}
           onDelete={onDelete}
         />
