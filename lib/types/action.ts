@@ -35,12 +35,13 @@ export interface LaserAction extends ActionBase {
 
 // ==================== Synchronous actions ====================
 
-/** Speech — teacher narration (wait for TTS to finish) */
+/** Speech — agent narration (wait for TTS to finish) */
 export interface SpeechAction extends ActionBase {
   type: 'speech';
   text: string;
   audioId?: string;
-  voice?: string;
+  voice?: string; // TTS voice ID override (per-agent)
+  agentId?: string; // Which agent is speaking
   speed?: number; // default 1.0
 }
 

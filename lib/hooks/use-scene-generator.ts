@@ -209,6 +209,7 @@ export async function generateAndStoreTTS(
   audioId: string,
   text: string,
   signal?: AbortSignal,
+  voiceOverride?: string,
 ): Promise<void> {
   const settings = useSettingsStore.getState();
   if (settings.ttsProviderId === 'browser-native-tts') return;
@@ -221,7 +222,7 @@ export async function generateAndStoreTTS(
       text,
       audioId,
       ttsProviderId: settings.ttsProviderId,
-      ttsVoice: settings.ttsVoice,
+      ttsVoice: voiceOverride || settings.ttsVoice,
       ttsSpeed: settings.ttsSpeed,
       ttsApiKey: ttsProviderConfig?.apiKey || undefined,
       ttsBaseUrl: ttsProviderConfig?.baseUrl || undefined,
@@ -273,7 +274,16 @@ async function generateTTSForScene(
     const audioId = `tts_${action.id}`;
     action.audioId = audioId;
     try {
-      await generateAndStoreTTS(audioId, action.text, signal);
+      // Use per-agent voice if the speech action has an agentId
+      let voiceOverride: string | undefined;
+      if (action.agentId) {
+        const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
+        const agent = useAgentRegistry.getState().getAgent(action.agentId);
+        voiceOverride = agent?.voiceId || action.voice;
+      } else if (action.voice) {
+        voiceOverride = action.voice;
+      }
+      await generateAndStoreTTS(audioId, action.text, signal, voiceOverride);
     } catch (error) {
       failedCount++;
       lastError = error instanceof Error ? error.message : `TTS failed for action ${action.id}`;

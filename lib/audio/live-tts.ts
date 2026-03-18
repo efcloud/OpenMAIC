@@ -35,15 +35,24 @@ export function isLiveTTSActive(): boolean {
 
 /** Call on each onLiveSpeech tick */
 export function onLiveSpeechTick(text: string | null, agentId: string | null) {
+  // Agent switch signal (text=null, agentId=new) — flush previous agent's remaining text
+  if (text === null && agentId !== null && agentId !== currentAgentId) {
+    if (prevText && spokenUpTo < prevText.length && currentAgentId) {
+      const remaining = prevText.slice(spokenUpTo).trim();
+      if (remaining) queueSentence(remaining, currentAgentId);
+    }
+    currentAgentId = agentId;
+    prevText = '';
+    spokenUpTo = 0;
+    return;
+  }
+
   if (text !== null && agentId !== null) {
-    // New agent started — track it
+    // Track agent (first text tick might be the first we see the agentId)
     if (agentId !== currentAgentId) {
-      // Agent changed — speak any remaining text from previous agent
-      if (prevText && spokenUpTo < prevText.length) {
+      if (prevText && spokenUpTo < prevText.length && currentAgentId) {
         const remaining = prevText.slice(spokenUpTo).trim();
-        if (remaining && currentAgentId) {
-          queueSentence(remaining, currentAgentId);
-        }
+        if (remaining) queueSentence(remaining, currentAgentId);
       }
       currentAgentId = agentId;
       prevText = '';
