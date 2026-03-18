@@ -24,7 +24,9 @@
  */
 
 import type { Scene } from '@/lib/types/stage';
-import type { Action, SpeechAction, DiscussionAction } from '@/lib/types/action';
+import type { Action, SpeechAction, DiscussionAction, ShowEmotionAction } from '@/lib/types/action';
+import { useAvatarStore } from '@/lib/store/avatar';
+import type { AvatarEmotion } from '@/lib/store/avatar';
 import type {
   EngineMode,
   TopicState,
@@ -457,6 +459,14 @@ export class PlaybackEngine {
             : { color: action.color }),
         } as Effect);
         // Don't block — continue immediately
+        this.processNext();
+        break;
+      }
+
+      case 'show_emotion': {
+        // Fire-and-forget avatar emotion — plays clip while speech continues
+        const emotionAction = action as ShowEmotionAction;
+        useAvatarStore.getState().showEmotion(emotionAction.emotion as AvatarEmotion);
         this.processNext();
         break;
       }

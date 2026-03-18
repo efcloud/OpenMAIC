@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
+import { useAvatarStore } from '@/lib/store/avatar';
 
 /**
  * Stage Component
@@ -270,6 +271,7 @@ export function Stage({
       },
       onSpeechStart: (text) => {
         setLectureSpeech(text);
+        useAvatarStore.getState().setMode('speaking');
         // Add to lecture session with incrementing index for dedup
         // Chat area pacing is handled by the StreamBuffer (onTextReveal)
         if (lectureSessionIdRef.current) {
@@ -290,6 +292,7 @@ export function Stage({
         // onSpeechStart replaces it or the scene transitions.
         // Clearing here causes fallback to idleText (first sentence).
         setActiveBubbleId(null);
+        useAvatarStore.getState().setMode('listening');
       },
       onEffectFire: (effect: Effect) => {
         // Add to lecture session with incrementing index

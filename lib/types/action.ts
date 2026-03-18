@@ -160,6 +160,12 @@ export interface DiscussionAction extends ActionBase {
   agentId?: string;
 }
 
+/** Show emotion — trigger an avatar emotion reaction (fire-and-forget) */
+export interface ShowEmotionAction extends ActionBase {
+  type: 'show_emotion';
+  emotion: string;
+}
+
 // ==================== Union type ====================
 
 export type Action =
@@ -177,12 +183,13 @@ export type Action =
   | WbClearAction
   | WbDeleteAction
   | WbCloseAction
-  | DiscussionAction;
+  | DiscussionAction
+  | ShowEmotionAction;
 
 export type ActionType = Action['type'];
 
 /** Action types that fire immediately without blocking */
-export const FIRE_AND_FORGET_ACTIONS: ActionType[] = ['spotlight', 'laser'];
+export const FIRE_AND_FORGET_ACTIONS: ActionType[] = ['spotlight', 'laser', 'show_emotion'];
 
 /** Action types that only work on slide scenes (require slide canvas elements) */
 export const SLIDE_ONLY_ACTIONS: ActionType[] = ['spotlight', 'laser'];
