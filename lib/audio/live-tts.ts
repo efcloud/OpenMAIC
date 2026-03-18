@@ -1,52 +1,76 @@
 /**
- * Live TTS — sentence-level chunked TTS for discussion/QA agent responses.
+ * Live TTS — per-agent voiced, turn-aware, sentence-chunked TTS.
  *
- * As text streams in, detects sentence boundaries and generates TTS for each
- * sentence as soon as it's complete. Audio chunks are queued and played
- * sequentially for seamless playback that stays close to the text stream.
+ * Each agent has its own voice (from AgentConfig.voiceId).
+ * Audio plays sequentially — agent B's audio waits for agent A's to finish.
+ * Sentences are detected during streaming and queued as they arrive.
  */
 
 import { useSettingsStore } from '@/lib/store/settings';
 import { useAvatarStore } from '@/lib/store/avatar';
+import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('LiveTTS');
 
-// Sentence boundary regex — split on . ? ! and Chinese equivalents, but not on abbreviations like "Dr." or "3.14"
 const SENTENCE_BOUNDARY = /(?<=[.!?。！？])\s+|(?<=[.!?。！？])$/;
 
+interface QueueItem {
+  audio: HTMLAudioElement;
+  url: string;
+  agentId: string;
+}
+
+let currentAgentId: string | null = null;
 let prevText = '';
-let spokenUpTo = 0; // character index already queued for TTS
-let audioQueue: HTMLAudioElement[] = [];
+let spokenUpTo = 0;
+let queue: QueueItem[] = [];
 let isPlaying = false;
 let aborted = false;
 
-/** Call on each onLiveSpeech tick to detect and speak new sentences */
+/** Call on each onLiveSpeech tick */
 export function onLiveSpeechTick(text: string | null, agentId: string | null) {
   if (text !== null && agentId !== null) {
+    // New agent started — track it
+    if (agentId !== currentAgentId) {
+      // Agent changed — speak any remaining text from previous agent
+      if (prevText && spokenUpTo < prevText.length) {
+        const remaining = prevText.slice(spokenUpTo).trim();
+        if (remaining && currentAgentId) {
+          queueSentence(remaining, currentAgentId);
+        }
+      }
+      currentAgentId = agentId;
+      prevText = '';
+      spokenUpTo = 0;
+    }
+
     prevText = text;
-    // Check for new complete sentences in the accumulated text
+
+    // Detect complete sentences in new text
     const unspoken = text.slice(spokenUpTo);
     const sentences = splitSentences(unspoken);
 
-    // Speak all complete sentences (keep the last fragment for next tick)
     if (sentences.length > 1) {
       for (let i = 0; i < sentences.length - 1; i++) {
         const sentence = sentences[i].trim();
         if (sentence) {
           spokenUpTo += sentences[i].length;
-          queueSentence(sentence);
+          queueSentence(sentence, agentId);
         }
       }
     }
   } else if (text === null && agentId === null) {
-    // Agent turn ended — speak any remaining text
-    const remaining = prevText.slice(spokenUpTo).trim();
-    if (remaining) {
-      queueSentence(remaining);
+    // Agent turn ended — speak remaining text
+    if (prevText && spokenUpTo < prevText.length) {
+      const remaining = prevText.slice(spokenUpTo).trim();
+      if (remaining && currentAgentId) {
+        queueSentence(remaining, currentAgentId);
+      }
     }
     prevText = '';
     spokenUpTo = 0;
+    currentAgentId = null;
   }
 }
 
@@ -55,37 +79,45 @@ export function stopLiveTTS() {
   aborted = true;
   prevText = '';
   spokenUpTo = 0;
+  currentAgentId = null;
 
   // Stop current audio
-  if (audioQueue.length > 0) {
-    const current = audioQueue[0];
+  if (queue.length > 0) {
+    const current = queue[0];
     if (current) {
-      current.pause();
-      current.src = '';
+      current.audio.pause();
+      current.audio.src = '';
+      URL.revokeObjectURL(current.url);
     }
   }
-  audioQueue = [];
+  queue = [];
   isPlaying = false;
 
-  // Cancel browser TTS
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
   }
 
-  // Reset abort flag after cleanup
   setTimeout(() => { aborted = false; }, 0);
 }
 
 function splitSentences(text: string): string[] {
-  // Split keeping the delimiter with the preceding sentence
-  const parts = text.split(SENTENCE_BOUNDARY);
-  return parts.filter(Boolean);
+  return text.split(SENTENCE_BOUNDARY).filter(Boolean);
 }
 
-async function queueSentence(sentence: string) {
+/** Resolve the TTS voice for a given agent */
+function getVoiceForAgent(agentId: string): string {
+  const agent = useAgentRegistry.getState().getAgent(agentId);
+  if (agent?.voiceId) return agent.voiceId;
+  // Fall back to global TTS voice setting
+  return useSettingsStore.getState().ttsVoice;
+}
+
+async function queueSentence(sentence: string, agentId: string) {
   const settings = useSettingsStore.getState();
   if (settings.ttsMuted || aborted) return;
   if (!sentence.trim()) return;
+
+  const voiceId = getVoiceForAgent(agentId);
 
   // Browser-native TTS
   if (settings.ttsProviderId === 'browser-native-tts') {
@@ -102,9 +134,9 @@ async function queueSentence(sentence: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text: sentence,
-        audioId: `live-tts-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        audioId: `live-${agentId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         ttsProviderId: settings.ttsProviderId,
-        ttsVoice: settings.ttsVoice,
+        ttsVoice: voiceId,
         ttsSpeed: settings.ttsSpeed,
         ttsApiKey: providerConfig?.apiKey || undefined,
         ttsBaseUrl: providerConfig?.baseUrl || undefined,
@@ -130,34 +162,28 @@ async function queueSentence(sentence: string) {
     const audio = new Audio(url);
     audio.volume = settings.ttsVolume;
     audio.playbackRate = settings.playbackSpeed || 1;
-    audio.addEventListener('ended', () => {
-      URL.revokeObjectURL(url);
-      playNext();
-    });
-    audio.addEventListener('error', () => {
-      URL.revokeObjectURL(url);
-      playNext();
-    });
+    audio.addEventListener('ended', () => playNext());
+    audio.addEventListener('error', () => playNext());
 
-    audioQueue.push(audio);
+    queue.push({ audio, url, agentId });
 
-    // Start playing if nothing is currently playing
     if (!isPlaying) {
       playNext();
     }
   } catch (err) {
     if (aborted) return;
-    log.error('Live TTS sentence error:', err);
+    log.error('Live TTS error:', err);
   }
 }
 
 function playNext() {
-  // Remove the finished audio
-  if (audioQueue.length > 0 && isPlaying) {
-    audioQueue.shift();
+  // Clean up finished item
+  if (queue.length > 0 && isPlaying) {
+    const finished = queue.shift()!;
+    URL.revokeObjectURL(finished.url);
   }
 
-  if (audioQueue.length === 0 || aborted) {
+  if (queue.length === 0 || aborted) {
     isPlaying = false;
     useAvatarStore.getState().setMode('listening');
     return;
@@ -165,10 +191,8 @@ function playNext() {
 
   isPlaying = true;
   useAvatarStore.getState().setMode('speaking');
-  const next = audioQueue[0];
-  next.play().catch(() => {
-    playNext();
-  });
+  const next = queue[0];
+  next.audio.play().catch(() => playNext());
 }
 
 function queueBrowserTTS(text: string, speed: number) {
@@ -176,11 +200,8 @@ function queueBrowserTTS(text: string, speed: number) {
 
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = speed;
-  utterance.onstart = () => {
-    useAvatarStore.getState().setMode('speaking');
-  };
+  utterance.onstart = () => useAvatarStore.getState().setMode('speaking');
   utterance.onend = () => {
-    // Only go to listening if nothing else is queued
     if (!window.speechSynthesis.speaking) {
       useAvatarStore.getState().setMode('listening');
     }

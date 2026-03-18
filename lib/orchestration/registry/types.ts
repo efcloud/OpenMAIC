@@ -13,6 +13,9 @@ export interface AgentConfig {
   allowedActions: string[]; // Action types this agent can use
   priority: number; // Priority for director selection (1-10)
 
+  // Voice — overrides global TTS voice for this agent
+  voiceId?: string; // TTS voice ID (e.g. 'Aiden', 'Cherry', 'Ethan')
+
   // Metadata
   createdAt: Date;
   updatedAt: Date;

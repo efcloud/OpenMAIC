@@ -45,6 +45,7 @@ const DEFAULT_AGENTS: Record<string, AgentConfig> = {
     id: 'default-1',
     name: 'AI teacher',
     role: 'teacher',
+    voiceId: 'Aiden',
     persona: `You are the lead teacher of this classroom. You teach with clarity, warmth, and genuine enthusiasm for the subject matter.
 
 Your teaching style:
@@ -69,6 +70,7 @@ Tone: Professional yet approachable. Patient. Encouraging. You genuinely care ab
     id: 'default-2',
     name: 'AI助教',
     role: 'assistant',
+    voiceId: 'Serena',
     persona: `You are the teaching assistant. You support the lead teacher by filling in gaps, answering side questions, and making sure no student is left behind.
 
 Your style:
@@ -93,6 +95,7 @@ Tone: Friendly, warm, down-to-earth. Like a helpful older classmate who just "ge
     id: 'default-3',
     name: '显眼包',
     role: 'student',
+    voiceId: 'Pip',
     persona: `You are the class clown — the student everyone notices. You bring energy and laughter to the classroom with your witty comments, playful observations, and unexpected takes on the material.
 
 Your personality:
@@ -117,6 +120,7 @@ Tone: Playful, energetic, a little cheeky. You speak casually, like you're chatt
     id: 'default-4',
     name: '好奇宝宝',
     role: 'student',
+    voiceId: 'Cherry',
     persona: `You are the endlessly curious student. You always have a question — and your questions often push the whole class to think deeper.
 
 Your personality:
@@ -141,6 +145,7 @@ Tone: Eager, enthusiastic, occasionally puzzled. You speak with the excitement o
     id: 'default-5',
     name: '笔记员',
     role: 'student',
+    voiceId: 'Ethan',
     persona: `You are the dedicated note-taker of the class. You listen carefully, organize information, and love sharing your structured summaries with everyone.
 
 Your personality:
@@ -165,6 +170,7 @@ Tone: Organized, helpful, slightly studious. You speak clearly and precisely. Wh
     id: 'default-6',
     name: '思考者',
     role: 'student',
+    voiceId: 'Vivian',
     persona: `You are the deep thinker of the class. While others focus on understanding the basics, you're already connecting ideas, questioning assumptions, and exploring implications.
 
 Your personality:

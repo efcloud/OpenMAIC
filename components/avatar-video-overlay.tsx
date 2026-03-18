@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { useAvatarStore } from '@/lib/store/avatar';
 import { useSettingsStore } from '@/lib/store/settings';
 import { AVATAR_LOOPS, AVATAR_EMOTIONS } from '@/lib/constants/avatars';
@@ -84,6 +85,7 @@ export function AvatarVideoOverlay() {
   const clearEmotion = useAvatarStore((s) => s.clearEmotion);
   const setMode = useAvatarStore((s) => s.setMode);
 
+  const pathname = usePathname();
   const loopRef = useRef<HTMLVideoElement>(null);
   const emotionRef = useRef<HTMLVideoElement>(null);
   const welcomeSpokenRef = useRef(false);
@@ -93,13 +95,20 @@ export function AvatarVideoOverlay() {
   const emotionSrc = emotion ? AVATAR_EMOTIONS[emotion] : null;
   const isPlayingEmotion = !!emotionSrc;
 
-  // Speak welcome message once on mount (when hello clip starts)
+  // On main page: play hello clip + speak welcome. On other pages: skip to listening.
   useEffect(() => {
-    if (mode === 'hello' && !welcomeSpokenRef.current) {
-      welcomeSpokenRef.current = true;
-      speakWelcome();
+    if (mode === 'hello') {
+      if (pathname === '/') {
+        if (!welcomeSpokenRef.current) {
+          welcomeSpokenRef.current = true;
+          speakWelcome();
+        }
+      } else {
+        // Inside a classroom — skip hello, go straight to listening
+        setMode('listening');
+      }
     }
-  }, [mode]);
+  }, [mode, pathname, setMode]);
 
   // When the hello clip finishes, switch to listening
   const handleLoopEnded = useCallback(() => {
