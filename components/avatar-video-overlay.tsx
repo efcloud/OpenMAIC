@@ -10,11 +10,14 @@ const WELCOME_MESSAGE =
   'Hello, welcome to the Efekta classroom experience. Please use the text box to let me know what you would like to learn today.';
 
 /**
- * Speak the welcome message via TTS if a provider is configured.
- * Falls back to browser-native TTS. Skipped if TTS is muted or no keys.
+ * Speak the welcome message via TTS.
+ * Retries up to 2 times with increasing delay if the request fails
+ * (server config may not be loaded yet on first attempt).
  */
-async function speakWelcome() {
+async function speakWelcome(attempt = 0): Promise<void> {
+  const MAX_RETRIES = 2;
   const settings = useSettingsStore.getState();
+
   if (settings.ttsMuted) return;
 
   // Browser-native fallback
@@ -22,15 +25,17 @@ async function speakWelcome() {
     if (!('speechSynthesis' in window)) return;
     const utterance = new SpeechSynthesisUtterance(WELCOME_MESSAGE);
     utterance.rate = settings.ttsSpeed;
+    utterance.onstart = () => useAvatarStore.getState().setMode('speaking');
+    utterance.onend = () => useAvatarStore.getState().setMode('listening');
+    utterance.onerror = () => useAvatarStore.getState().setMode('listening');
     window.speechSynthesis.speak(utterance);
     return;
   }
 
-  // Server-side TTS — check if provider has API key configured
   const providerConfig = settings.ttsProvidersConfig[settings.ttsProviderId];
-  if (!providerConfig?.isServerConfigured && !providerConfig?.apiKey) return;
 
   try {
+
     const response = await fetch('/api/generate/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -45,27 +50,57 @@ async function speakWelcome() {
       }),
     });
 
-    if (!response.ok) return;
+    if (!response.ok) {
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        return speakWelcome(attempt + 1);
+      }
+      return;
+    }
 
-    const { base64, format } = await response.json();
-    if (!base64) return;
+    const data = await response.json();
+    if (!data.base64) {
+      if (attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        return speakWelcome(attempt + 1);
+      }
+      return;
+    }
 
-    const binaryStr = atob(base64);
+    // Decode base64 audio
+    const binaryStr = atob(data.base64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);
     }
 
+    const format = data.format;
     const mimeType = format === 'wav' ? 'audio/wav' : format === 'ogg' ? 'audio/ogg' : 'audio/mp3';
     const blob = new Blob([bytes], { type: mimeType });
     const url = URL.createObjectURL(blob);
 
     const audio = new Audio(url);
     audio.volume = settings.ttsVolume;
-    audio.addEventListener('ended', () => URL.revokeObjectURL(url));
+
+    audio.addEventListener('playing', () => {
+      useAvatarStore.getState().setMode('speaking');
+    });
+    audio.addEventListener('ended', () => {
+      URL.revokeObjectURL(url);
+      useAvatarStore.getState().setMode('listening');
+    });
+    audio.addEventListener('error', () => {
+      URL.revokeObjectURL(url);
+      useAvatarStore.getState().setMode('listening');
+    });
+
     await audio.play();
-  } catch {
-    // Silently fail — welcome is a nice-to-have, not critical
+  } catch (err) {
+    if (attempt < MAX_RETRIES) {
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      return speakWelcome(attempt + 1);
+    }
+    useAvatarStore.getState().setMode('listening');
   }
 }
 
@@ -95,20 +130,37 @@ export function AvatarVideoOverlay() {
   const emotionSrc = emotion ? AVATAR_EMOTIONS[emotion] : null;
   const isPlayingEmotion = !!emotionSrc;
 
-  // On main page: play hello clip + speak welcome. On other pages: skip to listening.
+  // On main page: play hello clip, then idle, then speak welcome.
+  // On other pages: skip straight to listening.
   useEffect(() => {
     if (mode === 'hello') {
-      if (pathname === '/') {
-        if (!welcomeSpokenRef.current) {
-          welcomeSpokenRef.current = true;
-          speakWelcome();
-        }
-      } else {
-        // Inside a classroom — skip hello, go straight to listening
+      if (pathname !== '/') {
         setMode('listening');
       }
     }
   }, [mode, pathname, setMode]);
+
+  // Trigger welcome TTS after the user's first interaction (browser autoplay policy
+  // blocks audio.play() until the user clicks/taps/types on the page).
+  useEffect(() => {
+    if (pathname !== '/' || welcomeSpokenRef.current) return;
+
+    const handleInteraction = () => {
+      if (welcomeSpokenRef.current) return;
+      welcomeSpokenRef.current = true;
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+      setTimeout(() => speakWelcome(), 500);
+    };
+
+    document.addEventListener('click', handleInteraction);
+    document.addEventListener('keydown', handleInteraction);
+
+    return () => {
+      document.removeEventListener('click', handleInteraction);
+      document.removeEventListener('keydown', handleInteraction);
+    };
+  }, [pathname]);
 
   // When the hello clip finishes, switch to listening
   const handleLoopEnded = useCallback(() => {
