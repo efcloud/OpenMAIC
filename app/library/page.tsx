@@ -68,21 +68,25 @@ export default function LibraryPage() {
     [stages, activeStageId],
   );
 
-  // Map trees to CourseCard-compatible format with cover thumbnail
+  // Map trees to CourseCard-compatible format with lesson thumbnails
   const courseCards = useMemo(
     () =>
       trees.map((tree) => {
         const lessons = flattenLessons(tree.root);
-        // Use the first lesson's slide as cover
-        const firstStageId = lessons[0]?.stageId;
-        const coverSlide = firstStageId ? thumbnails[firstStageId] : undefined;
+        // Collect up to 6 lesson thumbnails (iOS folder style)
+        const lessonSlides: Slide[] = [];
+        for (const lesson of lessons) {
+          if (lessonSlides.length >= 6) break;
+          const slide = thumbnails[lesson.stageId];
+          if (slide) lessonSlides.push(slide);
+        }
         return {
           id: tree.id,
           name: tree.name,
           description: tree.description,
           lessonCount: lessons.length,
           updatedAt: tree.updatedAt,
-          coverSlide,
+          lessonSlides,
         };
       }),
     [trees, thumbnails],
@@ -249,7 +253,7 @@ function DroppableCourseCard({
   onOpen,
   onDelete,
 }: {
-  card: { id: string; name: string; description?: string; lessonCount: number; updatedAt: number; coverSlide?: Slide };
+  card: { id: string; name: string; description?: string; lessonCount: number; updatedAt: number; lessonSlides: Slide[] };
   index: number;
   isDragActive: boolean;
   onOpen: (id: string) => void;
@@ -287,7 +291,7 @@ function DroppableCourseCard({
             lessons: Array(card.lessonCount).fill({ stageId: '', order: 0 }),
             updatedAt: card.updatedAt,
           }}
-          coverSlide={card.coverSlide}
+          lessonSlides={card.lessonSlides}
           onOpen={onOpen}
           onDelete={onDelete}
         />

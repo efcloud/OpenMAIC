@@ -21,7 +21,7 @@ interface CourseCardProps {
     lessons: Array<{ stageId: string; title?: string; order: number }>;
     updatedAt: number;
   };
-  readonly coverSlide?: Slide;
+  readonly lessonSlides?: Slide[];
   readonly onOpen: (courseId: string) => void;
   readonly onDelete: (courseId: string) => void;
 }
@@ -38,7 +38,7 @@ function formatRelativeTime(ts: number): string {
   return new Date(ts).toLocaleDateString();
 }
 
-export function CourseCard({ course, coverSlide, onOpen, onDelete }: CourseCardProps) {
+export function CourseCard({ course, lessonSlides = [], onOpen, onDelete }: CourseCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const lessonCount = course.lessons.length;
@@ -54,25 +54,45 @@ export function CourseCard({ course, coverSlide, onOpen, onDelete }: CourseCardP
     >
       {/* Main card — click to open editor */}
       <div onClick={() => onOpen(course.id)} className="p-4 cursor-pointer">
-        {/* Cover thumbnail — slide preview or folder icon */}
-        <div className="mb-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/60 dark:to-slate-800/30 overflow-hidden aspect-[16/9] flex items-center justify-center">
-          {coverSlide ? (
-            <ThumbnailSlide
-              slide={coverSlide}
-              size={320}
-              viewportSize={coverSlide.viewportSize ?? 1000}
-              viewportRatio={coverSlide.viewportRatio ?? 0.5625}
-            />
-          ) : lessonCount === 0 ? (
-            <Folder className="size-10 text-muted-foreground/20" />
-          ) : (
-            <div className="grid grid-cols-3 gap-1.5 p-3 w-full h-full">
-              {previewLessons.map((lesson, i) => (
+        {/* iOS-style folder grid — up to 6 lesson slide thumbnails */}
+        <div className="mb-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/60 dark:to-slate-800/30 overflow-hidden aspect-[4/3] p-2">
+          {lessonSlides.length > 0 ? (
+            <div className="grid grid-cols-3 grid-rows-2 gap-1.5 w-full h-full">
+              {lessonSlides.slice(0, 6).map((slide, i) => (
                 <div
-                  key={lesson.stageId || i}
-                  className="rounded-lg bg-white/80 dark:bg-slate-700/50 border border-border/20 flex items-center justify-center"
+                  key={i}
+                  className="rounded-lg overflow-hidden bg-white dark:bg-slate-700/50 border border-border/20"
                 >
-                  <FileText className="size-4 text-violet-400/60" />
+                  <ThumbnailSlide
+                    slide={slide}
+                    size={120}
+                    viewportSize={slide.viewportSize ?? 1000}
+                    viewportRatio={slide.viewportRatio ?? 0.5625}
+                  />
+                </div>
+              ))}
+              {/* Fill remaining slots with placeholder icons */}
+              {Array.from({ length: Math.max(0, 6 - lessonSlides.length) }).map((_, i) => (
+                <div
+                  key={`empty-${i}`}
+                  className="rounded-lg bg-white/60 dark:bg-slate-700/30 border border-border/10 flex items-center justify-center"
+                >
+                  <FileText className="size-3.5 text-muted-foreground/15" />
+                </div>
+              ))}
+            </div>
+          ) : lessonCount === 0 ? (
+            <div className="flex items-center justify-center w-full h-full">
+              <Folder className="size-10 text-muted-foreground/20" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 grid-rows-2 gap-1.5 w-full h-full">
+              {previewLessons.slice(0, 6).map((_, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg bg-white/60 dark:bg-slate-700/30 border border-border/10 flex items-center justify-center"
+                >
+                  <FileText className="size-3.5 text-muted-foreground/15" />
                 </div>
               ))}
             </div>
