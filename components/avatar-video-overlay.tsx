@@ -9,6 +9,20 @@ import { AVATAR_LOOPS, AVATAR_EMOTIONS } from '@/lib/constants/avatars';
 const WELCOME_MESSAGE =
   'Hello, welcome to the Efekta classroom experience. Please use the text box to let me know what you would like to learn today.';
 
+let welcomeAudio: HTMLAudioElement | null = null;
+
+/** Stop welcome audio if navigating away */
+function stopWelcomeAudio() {
+  if (welcomeAudio) {
+    welcomeAudio.pause();
+    welcomeAudio.src = '';
+    welcomeAudio = null;
+  }
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 /**
  * Speak the welcome message via TTS.
  * Retries up to 2 times with increasing delay if the request fails
@@ -79,22 +93,24 @@ async function speakWelcome(attempt = 0): Promise<void> {
     const blob = new Blob([bytes], { type: mimeType });
     const url = URL.createObjectURL(blob);
 
-    const audio = new Audio(url);
-    audio.volume = settings.ttsVolume;
+    welcomeAudio = new Audio(url);
+    welcomeAudio.volume = settings.ttsVolume;
 
-    audio.addEventListener('playing', () => {
+    welcomeAudio.addEventListener('playing', () => {
       useAvatarStore.getState().setMode('speaking');
     });
-    audio.addEventListener('ended', () => {
+    welcomeAudio.addEventListener('ended', () => {
       URL.revokeObjectURL(url);
+      welcomeAudio = null;
       useAvatarStore.getState().setMode('listening');
     });
-    audio.addEventListener('error', () => {
+    welcomeAudio.addEventListener('error', () => {
       URL.revokeObjectURL(url);
+      welcomeAudio = null;
       useAvatarStore.getState().setMode('listening');
     });
 
-    await audio.play();
+    await welcomeAudio.play();
   } catch (err) {
     if (attempt < MAX_RETRIES) {
       await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
@@ -131,14 +147,15 @@ export function AvatarVideoOverlay() {
   const isPlayingEmotion = !!emotionSrc;
 
   // On main page: play hello clip, then idle, then speak welcome.
-  // On other pages: skip straight to listening.
+  // On other pages: skip straight to listening and stop any welcome audio.
   useEffect(() => {
-    if (mode === 'hello') {
-      if (pathname !== '/') {
+    if (pathname !== '/') {
+      stopWelcomeAudio();
+      if (mode === 'hello') {
         setMode('listening');
       }
     }
-  }, [mode, pathname, setMode]);
+  }, [pathname, mode, setMode]);
 
   // Trigger welcome TTS after the user's first interaction (browser autoplay policy
   // blocks audio.play() until the user clicks/taps/types on the page).
