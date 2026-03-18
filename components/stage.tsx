@@ -268,9 +268,11 @@ export function Stage({
     const engine = new PlaybackEngine([currentScene], actionEngine, audioPlayerRef.current, {
       onModeChange: (mode) => {
         setEngineMode(mode);
-        // Avatar reacts to engine state changes
         if (mode === 'paused' || mode === 'idle') {
           useAvatarStore.getState().setMode('listening');
+        } else if (mode === 'playing' && audioPlayerRef.current.hasActiveAudio()) {
+          // Resuming mid-speech — audio is paused but will resume, avatar should speak
+          useAvatarStore.getState().setMode('speaking');
         }
       },
       onSceneChange: (_sceneId) => {
