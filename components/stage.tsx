@@ -30,7 +30,7 @@ import {
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { useAvatarStore } from '@/lib/store/avatar';
-import { onLiveSpeechTick, stopLiveTTS, isLiveTTSActive, waitForTTSNearEnd } from '@/lib/audio/live-tts';
+import { onLiveSpeechTick, stopLiveTTS, isLiveTTSActive } from '@/lib/audio/live-tts';
 
 /**
  * Stage Component
@@ -867,18 +867,9 @@ export function Stage({
               setChatSessionType(chatAreaRef.current?.getActiveSessionType?.() ?? null);
               setIsTopicPending(false);
 
-              // If previous agent's TTS is still playing, delay showing the new
-              // agent's text in the roundtable until audio is nearly done.
-              // This keeps text and audio in sync — feels like a real conversation.
-              if (isLiveTTSActive() && agentId !== undefined && agentId !== null) {
-                waitForTTSNearEnd().then(() => {
-                  if (sceneEpochRef.current !== epoch) return;
-                  setLiveSpeech(text);
-                  if (agentId !== undefined) setSpeakingAgentId(agentId);
-                });
-              } else {
-                setLiveSpeech(text);
-                if (agentId !== undefined) setSpeakingAgentId(agentId);
+              setLiveSpeech(text);
+              if (agentId !== undefined) {
+                setSpeakingAgentId(agentId);
               }
             } else if (text === null && agentId === null) {
               // Agent turn ended — keep text visible until TTS finishes
