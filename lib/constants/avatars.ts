@@ -14,7 +14,7 @@ export interface AvatarVideoSrc {
 
 /** Video loops — keyed by avatar mode */
 export const AVATAR_LOOPS: Record<string, AvatarVideoSrc> = {
-  hello: { webm: '/addi/hello.webm', mp4: '/addi/hello.webm' }, // hello only has webm
+  hello: { webm: '/addi/hello.webm', mp4: '/addi/emotions/wave.mp4' }, // Safari: use wave as hello
   listening: { webm: '/addi/listen_loop.webm', mp4: '/addi/listen_loop.mp4' },
   speaking: { webm: '/addi/talk_loop.webm', mp4: '/addi/talk_loop.mp4' },
 };

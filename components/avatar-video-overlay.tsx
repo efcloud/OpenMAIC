@@ -131,6 +131,12 @@ export function AvatarVideoOverlay() {
   const welcomeSpokenRef = useRef(false);
   const [useSafari, setUseSafari] = useState(false);
 
+  // Minimized mode: circular draggable avatar
+  const [minimized, setMinimized] = useState(false);
+  const [dragPos, setDragPos] = useState({ x: 16, y: -16 }); // bottom-left default (x from left, y from bottom)
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0, posX: 0, posY: 0 });
+
   useEffect(() => {
     setUseSafari(needsCanvasChromakey());
   }, []);
@@ -249,14 +255,42 @@ export function AvatarVideoOverlay() {
   const loopSrc = useSafari ? loopSrcs.mp4 : loopSrcs.webm;
   const emotionSrc = emotionSrcs ? (useSafari ? emotionSrcs.mp4 : emotionSrcs.webm) : null;
 
-  return (
-    <div className="pointer-events-none fixed bottom-0 left-0 z-[200] w-[22rem] select-none sm:w-[26rem] md:w-[30rem] lg:w-[36rem] xl:w-[40rem]">
-      {/* Canvas — only rendered for Safari, sits on top */}
-      {useSafari && (
-        <canvas ref={canvasRef} aria-hidden="true" className="block h-auto w-full" />
-      )}
+  // Drag handlers for minimized mode — only drag while pointer is down
+  const pointerDownRef = useRef(false);
 
-      {/* Loop video — visible on Chrome, offscreen on Safari */}
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!minimized) return;
+    pointerDownRef.current = true;
+    draggingRef.current = false;
+    dragStartRef.current = { x: e.clientX, y: e.clientY, posX: dragPos.x, posY: dragPos.y };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, [minimized, dragPos]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!minimized || !pointerDownRef.current) return;
+    const dx = e.clientX - dragStartRef.current.x;
+    const dy = e.clientY - dragStartRef.current.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) draggingRef.current = true;
+    if (draggingRef.current) {
+      setDragPos({
+        x: dragStartRef.current.posX + dx,
+        y: dragStartRef.current.posY + dy,
+      });
+    }
+  }, [minimized]);
+
+  const handlePointerUp = useCallback(() => {
+    pointerDownRef.current = false;
+    if (!draggingRef.current) {
+      setMinimized(false);
+    }
+    draggingRef.current = false;
+  }, []);
+
+  // Shared video elements (always rendered, positioning changes)
+  const videoElements = (
+    <>
+      {/* Loop video */}
       <video
         key={`loop-${mode}-${useSafari}`}
         ref={loopRef}
@@ -296,6 +330,58 @@ export function AvatarVideoOverlay() {
           <source src={emotionSrc} type="video/mp4" />
         </video>
       )}
+    </>
+  );
+
+  // Minimized: draggable circle
+  if (minimized) {
+    return (
+      <>
+        <div
+          className="fixed z-[200] select-none"
+          style={{
+            left: dragPos.x,
+            top: dragPos.y,
+            width: 80,
+            height: 80,
+            cursor: 'grab',
+            touchAction: 'none',
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          <div className="w-full h-full rounded-full overflow-hidden border-2 border-white/30 shadow-lg shadow-black/20 bg-slate-800/50 backdrop-blur-sm">
+            <div className="w-full h-full relative" style={{ transform: 'scale(2.5)', transformOrigin: 'top center' }}>
+              {useSafari ? (
+                <canvas ref={canvasRef} aria-hidden="true" className="block w-full h-auto" />
+              ) : null}
+              {!useSafari && videoElements}
+            </div>
+          </div>
+        </div>
+        {/* Keep videos rendering offscreen for Safari canvas */}
+        {useSafari && <div className="fixed" style={{ left: -9999 }}>{videoElements}</div>}
+      </>
+    );
+  }
+
+  // Expanded: full-size bottom-left overlay — click to minimize
+  return (
+    <div
+      className="fixed bottom-0 left-0 z-[200] w-[22rem] select-none sm:w-[26rem] md:w-[30rem] lg:w-[36rem] xl:w-[40rem] cursor-pointer"
+      onClick={() => {
+        setMinimized(true);
+        setDragPos({ x: 16, y: window.innerHeight - 100 });
+      }}
+    >
+      {/* Canvas for Safari */}
+      {useSafari && (
+        <canvas ref={canvasRef} aria-hidden="true" className="block h-auto w-full" />
+      )}
+
+      {/* Videos */}
+      {videoElements}
     </div>
   );
 }
