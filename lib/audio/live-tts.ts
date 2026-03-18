@@ -28,6 +28,11 @@ let queue: QueueItem[] = [];
 let isPlaying = false;
 let aborted = false;
 
+/** Whether the TTS audio queue is currently playing or has pending items */
+export function isLiveTTSActive(): boolean {
+  return isPlaying || queue.length > 0;
+}
+
 /** Call on each onLiveSpeech tick */
 export function onLiveSpeechTick(text: string | null, agentId: string | null) {
   if (text !== null && agentId !== null) {

@@ -30,7 +30,7 @@ import {
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { useAvatarStore } from '@/lib/store/avatar';
-import { onLiveSpeechTick, stopLiveTTS } from '@/lib/audio/live-tts';
+import { onLiveSpeechTick, stopLiveTTS, isLiveTTSActive } from '@/lib/audio/live-tts';
 
 /**
  * Stage Component
@@ -301,7 +301,9 @@ export function Stage({
         // onSpeechStart replaces it or the scene transitions.
         // Clearing here causes fallback to idleText (first sentence).
         setActiveBubbleId(null);
-        useAvatarStore.getState().setMode('listening');
+        // Don't switch avatar to listening here — whiteboard actions may follow
+        // before the next speech, causing a jarring listen→speak flicker.
+        // Avatar goes to listening via onModeChange (pause/idle/complete).
       },
       onEffectFire: (effect: Effect) => {
         // Add to lecture session with incrementing index
@@ -869,7 +871,22 @@ export function Stage({
               // Avatar mode is now driven by the TTS audio queue (live-tts.ts)
               // so we don't set it here — prevents fighting between text stream and audio
             } else if (text === null && agentId === null) {
-              setChatIsStreaming(false);
+              // If TTS is still playing the previous agent's audio, delay clearing
+              // so the text stays visible in sync with what the user hears.
+              if (isLiveTTSActive()) {
+                const poll = setInterval(() => {
+                  if (!isLiveTTSActive()) {
+                    clearInterval(poll);
+                    setChatIsStreaming(false);
+                    setLiveSpeech(null);
+                    setSpeakingAgentId(null);
+                  }
+                }, 200);
+                // Safety: clear after 30s max
+                setTimeout(() => clearInterval(poll), 30000);
+              } else {
+                setChatIsStreaming(false);
+              }
               // Don't clear chatSessionType here — it's needed by the stop
               // button when director cues user (cue_user → done → liveSpeech null).
               // It gets properly cleared in doSessionCleanup and scene change.
