@@ -7,7 +7,7 @@ import { ArrowLeft, Plus, X, GripVertical } from 'lucide-react';
 import {
   DndContext,
   DragOverlay,
-  closestCenter,
+  pointerWithin,
   type DragStartEvent,
   type DragEndEvent,
   useDroppable,
@@ -139,7 +139,7 @@ export default function LibraryPage() {
         </div>
 
         <DndContext
-          collisionDetection={closestCenter}
+          collisionDetection={pointerWithin}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >

@@ -1,127 +1,196 @@
 'use client';
 
-import { motion } from 'motion/react';
-import { BookOpen, Clock, MoreHorizontal, Trash2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+  MoreHorizontal,
+  Trash2,
+  ChevronRight,
+  FileText,
+  Folder,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface CourseCardProps {
-  course: {
+  readonly course: {
     id: string;
     name: string;
     description?: string;
     lessons: Array<{ stageId: string; title?: string; order: number }>;
     updatedAt: number;
   };
-  onOpen: (courseId: string) => void;
-  onDelete: (courseId: string) => void;
+  readonly onOpen: (courseId: string) => void;
+  readonly onDelete: (courseId: string) => void;
 }
 
-function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffMinutes = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return new Date(timestamp).toLocaleDateString();
+function formatRelativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ts).toLocaleDateString();
 }
 
 export function CourseCard({ course, onOpen, onDelete }: CourseCardProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const lessonCount = course.lessons.length;
+  const previewLessons = course.lessons.slice(0, 6);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, ease: 'easeOut' }}
+      layout
       className={cn(
-        'group relative rounded-2xl border border-gray-100 dark:border-gray-800',
-        'bg-white dark:bg-slate-900/80 shadow-xs hover:shadow-md',
-        'transition-all duration-200 hover:scale-[1.02]',
-        'cursor-pointer overflow-hidden',
+        'group relative rounded-2xl bg-white dark:bg-slate-900/80 border border-border/40 shadow-sm hover:shadow-md transition-shadow overflow-hidden select-none',
+        expanded && 'shadow-md',
       )}
-      onClick={() => onOpen(course.id)}
     >
-      {/* Header gradient strip */}
-      <div className="h-1.5 w-full bg-gradient-to-r from-violet-400 to-purple-500 dark:from-violet-500 dark:to-purple-600" />
+      {/* Main card — click to open editor */}
+      <div onClick={() => onOpen(course.id)} className="p-4 cursor-pointer">
+        {/* iOS-style folder grid preview */}
+        <div className="mb-3 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/60 dark:to-slate-800/30 p-3 aspect-[4/3] flex items-center justify-center">
+          {lessonCount === 0 ? (
+            <Folder className="size-10 text-muted-foreground/20" />
+          ) : (
+            <div className="grid grid-cols-3 gap-1.5 w-full h-full">
+              {previewLessons.map((lesson, i) => (
+                <div
+                  key={lesson.stageId || i}
+                  className="rounded-lg bg-white/80 dark:bg-slate-700/50 border border-border/20 flex items-center justify-center"
+                >
+                  <FileText className="size-4 text-violet-400/60" />
+                </div>
+              ))}
+              {lessonCount > 6 && (
+                <div className="rounded-lg bg-white/80 dark:bg-slate-700/50 border border-border/20 flex items-center justify-center">
+                  <span className="text-[10px] font-semibold text-muted-foreground/50">
+                    +{lessonCount - 5}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
-      <div className="p-4">
-        {/* Top row: title + menu */}
+        {/* Title + meta */}
         <div className="flex items-start justify-between gap-2">
-          <h3 className="font-medium text-[15px] text-foreground/90 leading-snug line-clamp-2 min-w-0">
-            {course.name}
-          </h3>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-foreground/90 truncate">{course.name}</h3>
+            {course.description && (
+              <p className="text-xs text-muted-foreground/50 line-clamp-1 mt-0.5">
+                {course.description}
+              </p>
+            )}
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[11px] text-muted-foreground/40 tabular-nums">
+                {lessonCount} item{lessonCount !== 1 ? 's' : ''}
+              </span>
+              <span className="text-muted-foreground/20">·</span>
+              <span className="text-[11px] text-muted-foreground/40">
+                {formatRelativeTime(course.updatedAt)}
+              </span>
+            </div>
+          </div>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                variant="destructive"
+          <div className="shrink-0 flex items-center gap-0.5">
+            {/* Expand toggle */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded(!expanded);
+              }}
+              className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-all"
+            >
+              <ChevronRight
+                className={cn(
+                  'size-3.5 transition-transform duration-200',
+                  expanded && 'rotate-90',
+                )}
+              />
+            </button>
+
+            {/* Menu */}
+            <div className="relative">
+              <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDelete(course.id);
+                  setMenuOpen(!menuOpen);
                 }}
+                className="p-1.5 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 opacity-0 group-hover:opacity-100 transition-all"
               >
-                <Trash2 className="size-4" />
-                Delete course
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <MoreHorizontal className="size-3.5" />
+              </button>
+
+              <AnimatePresence>
+                {menuOpen && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpen(false);
+                      }}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                      transition={{ duration: 0.12 }}
+                      className="absolute right-0 top-full mt-1 z-50 w-40 rounded-xl bg-white dark:bg-slate-800 border border-border/60 shadow-lg py-1"
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setMenuOpen(false);
+                          onDelete(course.id);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
-
-        {/* Description */}
-        {course.description && (
-          <p className="mt-1.5 text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-            {course.description}
-          </p>
-        )}
-
-        {/* Footer meta */}
-        <div className="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 font-medium text-violet-600 dark:text-violet-400">
-            <BookOpen className="size-3" />
-            {lessonCount} {lessonCount === 1 ? 'lesson' : 'lessons'}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Clock className="size-3" />
-            {formatRelativeTime(course.updatedAt)}
-          </span>
-        </div>
-
-        {/* Open button */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-3 w-full"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpen(course.id);
-          }}
-        >
-          Open
-        </Button>
       </div>
+
+      {/* Expanded inline preview */}
+      <AnimatePresence>
+        {expanded && lessonCount > 0 && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            className="overflow-hidden border-t border-border/30"
+          >
+            <div className="px-4 py-2.5 space-y-0.5 max-h-48 overflow-y-auto">
+              {course.lessons.map((lesson, i) => (
+                <div
+                  key={lesson.stageId || i}
+                  className="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-muted/40 transition-colors"
+                >
+                  <FileText className="size-3 text-violet-400/50 shrink-0" />
+                  <span className="text-xs text-foreground/70 truncate flex-1">
+                    {lesson.title || `Lesson ${i + 1}`}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/30 shrink-0 tabular-nums">
+                    {i + 1}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
