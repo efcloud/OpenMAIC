@@ -25,7 +25,7 @@ export function buildCourseContext(ctx?: SceneGenerationContext): string {
   );
   lines.push('');
   if (ctx.pageIndex === 1) {
-    lines.push('Position: This is the FIRST page. Open with a greeting and course introduction.');
+    lines.push('Position: This is the FIRST page. Open with a brief, warm greeting (use "Hello" or "Hi everyone" — NEVER "Good morning/afternoon/evening" since students join at different times) and a short course introduction. Vary the opening — don\'t always use the same phrasing.');
   } else if (ctx.pageIndex === ctx.totalPages) {
     lines.push('Position: This is the LAST page. Conclude the course with a summary and closing.');
     lines.push(

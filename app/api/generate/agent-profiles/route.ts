@@ -87,6 +87,8 @@ ${sceneSummary ? `\nScene outlines:\n${sceneSummary}\n` : ''}
 Requirements:
 - Decide the appropriate number of agents based on the course content (typically 3-5)
 - Exactly 1 agent must have role "teacher", the rest can be "assistant" or "student"
+- The teacher agent must have a MALE name (the teacher avatar is a male character)
+- Other agents can be any gender — vary the mix for a diverse classroom
 - Priority values: teacher=10 (highest), assistant=7, student=4-6
 - Each agent needs: name, role, persona (2-3 sentences describing personality and teaching/learning style)
 - Names and personas must be in language: ${language}

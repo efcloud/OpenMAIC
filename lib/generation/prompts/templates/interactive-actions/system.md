@@ -35,7 +35,7 @@ The user prompt includes a **Course Outline** and **Position** indicator — use
 
 **CRITICAL — Same-session continuity**: All pages belong to the **same class session**. This is NOT a series of separate classes.
 
-- **First page**: Open with a greeting before introducing the interactive activity. This is the ONLY page that should greet.
+- **First page**: Open with a brief greeting (use "Hello" or "Hi everyone" — NEVER "Good morning/afternoon/evening") before introducing the interactive activity. This is the ONLY page that should greet.
 - **Middle pages**: Transition naturally from the previous page. Do NOT greet, re-introduce yourself, or say "welcome". Use phrases like "Now let's explore this hands-on..." / "Let's see this in action..."
 - **Last page**: Frame the interactive as a final exploration and provide a closing remark after.
 - **Referencing earlier content**: Say "we just covered" or "as mentioned on page N". NEVER say "last class" or "previous session" — there is no previous session.
