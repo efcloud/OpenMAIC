@@ -4,6 +4,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import { usePathname } from 'next/navigation';
 import { useAvatarStore } from '@/lib/store/avatar';
 import { useSettingsStore } from '@/lib/store/settings';
+import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 import { AVATAR_LOOPS, AVATAR_EMOTIONS } from '@/lib/constants/avatars';
 
 const WELCOME_MESSAGE =
@@ -23,14 +24,22 @@ function stopWelcomeAudio() {
   }
 }
 
+/** Resolve the teacher agent's voice, falling back to global TTS voice */
+function getTeacherVoice(): string {
+  const agents = useAgentRegistry.getState().listAgents();
+  const teacher = agents.find((a) => a.role === 'teacher');
+  return teacher?.voiceId || useSettingsStore.getState().ttsVoice;
+}
+
 /**
- * Speak the welcome message via TTS.
+ * Speak the welcome message via TTS using the teacher's voice.
  * Retries up to 2 times with increasing delay if the request fails
  * (server config may not be loaded yet on first attempt).
  */
 async function speakWelcome(attempt = 0): Promise<void> {
   const MAX_RETRIES = 2;
   const settings = useSettingsStore.getState();
+  const teacherVoice = getTeacherVoice();
 
   if (settings.ttsMuted) return;
 
@@ -49,7 +58,6 @@ async function speakWelcome(attempt = 0): Promise<void> {
   const providerConfig = settings.ttsProvidersConfig[settings.ttsProviderId];
 
   try {
-
     const response = await fetch('/api/generate/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -57,7 +65,7 @@ async function speakWelcome(attempt = 0): Promise<void> {
         text: WELCOME_MESSAGE,
         audioId: `welcome-${Date.now()}`,
         ttsProviderId: settings.ttsProviderId,
-        ttsVoice: settings.ttsVoice,
+        ttsVoice: teacherVoice,
         ttsSpeed: settings.ttsSpeed,
         ttsApiKey: providerConfig?.apiKey || undefined,
         ttsBaseUrl: providerConfig?.baseUrl || undefined,
