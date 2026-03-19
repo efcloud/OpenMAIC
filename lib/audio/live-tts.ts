@@ -150,35 +150,31 @@ function splitSentences(text: string): string[] {
 }
 
 /**
- * Voice pool for agents without explicit voiceId.
- * Assigns a consistent voice per agentId based on role + index.
+ * Voice pool fallback for agents without explicit voiceId (legacy data).
+ * New agents get voiceId assigned at creation (see saveGeneratedAgents).
  */
-const VOICE_POOL_TEACHER = ['Aiden', 'Ethan', 'Ryan'];
 const VOICE_POOL_FEMALE = ['Serena', 'Cherry', 'Vivian', 'Chelsie', 'Mia'];
 const VOICE_POOL_MALE = ['Pip', 'Ethan', 'Kai', 'Neil', 'Mochi'];
 const agentVoiceCache = new Map<string, string>();
 
 /** Resolve the TTS voice for a given agent */
 function getVoiceForAgent(agentId: string): string {
-  // Check if agent has an explicit voiceId
   const agent = useAgentRegistry.getState().getAgent(agentId);
   if (agent?.voiceId) return agent.voiceId;
 
-  // Check cache for previously assigned voice
+  // Fallback for legacy agents without voiceId
   if (agentVoiceCache.has(agentId)) return agentVoiceCache.get(agentId)!;
 
-  // Assign a voice based on role and a hash of the agentId for consistency
+  if (agent?.role === 'teacher') {
+    agentVoiceCache.set(agentId, 'Aiden');
+    return 'Aiden';
+  }
+
   const hash = Array.from(agentId).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
   const absHash = Math.abs(hash);
-
-  let voice: string;
-  if (agent?.role === 'teacher') {
-    voice = VOICE_POOL_TEACHER[absHash % VOICE_POOL_TEACHER.length];
-  } else if (absHash % 2 === 0) {
-    voice = VOICE_POOL_FEMALE[absHash % VOICE_POOL_FEMALE.length];
-  } else {
-    voice = VOICE_POOL_MALE[absHash % VOICE_POOL_MALE.length];
-  }
+  const voice = absHash % 2 === 0
+    ? VOICE_POOL_FEMALE[absHash % VOICE_POOL_FEMALE.length]
+    : VOICE_POOL_MALE[absHash % VOICE_POOL_MALE.length];
 
   agentVoiceCache.set(agentId, voice);
   return voice;
