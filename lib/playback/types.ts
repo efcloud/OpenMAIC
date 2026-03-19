@@ -31,6 +31,8 @@ export interface PlaybackEngineCallbacks {
   onSceneChange?: (sceneId: string) => void;
   onSpeechStart?: (text: string) => void;
   onSpeechEnd?: () => void;
+  /** Fires when audio actually begins playing (after load/buffer) — use for avatar sync */
+  onAudioStart?: () => void;
   onTextDelta?: (content: string) => void;
   onSpeakerChange?: (role: string) => void;
   onEffectFire?: (effect: Effect) => void;

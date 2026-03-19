@@ -280,7 +280,6 @@ export function Stage({
       },
       onSpeechStart: (text) => {
         setLectureSpeech(text);
-        useAvatarStore.getState().setMode('speaking');
         // Add to lecture session with incrementing index for dedup
         // Chat area pacing is handled by the StreamBuffer (onTextReveal)
         if (lectureSessionIdRef.current) {
@@ -304,6 +303,10 @@ export function Stage({
         // Don't switch avatar to listening here — whiteboard actions may follow
         // before the next speech, causing a jarring listen→speak flicker.
         // Avatar goes to listening via onModeChange (pause/idle/complete).
+      },
+      onAudioStart: () => {
+        // Audio is actually playing now — sync avatar to speaking
+        useAvatarStore.getState().setMode('speaking');
       },
       onEffectFire: (effect: Effect) => {
         // Add to lecture session with incrementing index
@@ -436,7 +439,7 @@ export function Stage({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when scene changes, functions are stable refs
   }, [currentScene]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount (including navigation away from lesson)
   useEffect(() => {
     const audioPlayer = audioPlayerRef.current;
     return () => {
@@ -447,6 +450,10 @@ export function Stage({
       if (discussionAbortRef.current) {
         discussionAbortRef.current.abort();
       }
+      // Stop live TTS queue (chat/discussion agents keep playing without this)
+      stopLiveTTS();
+      // End any active chat session SSE stream
+      chatAreaRef.current?.endActiveSession();
     };
   }, []);
 

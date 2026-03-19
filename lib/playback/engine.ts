@@ -439,6 +439,11 @@ export class PlaybackEngine {
         this.audioPlayer
           .play(speechAction.audioId || '')
           .then(async (audioStarted) => {
+            if (audioStarted) {
+              // Audio is now actually playing — signal avatar sync
+              this.callbacks.onAudioStart?.();
+              return;
+            }
             if (!audioStarted) {
               // No pre-generated audio — try on-the-fly TTS if text exists
               if (speechAction.text) {
@@ -474,7 +479,7 @@ export class PlaybackEngine {
                         audio.playbackRate = settings.playbackSpeed || 1;
                         audio.addEventListener('ended', () => { URL.revokeObjectURL(url); this.callbacks.onSpeechEnd?.(); if (this.mode === 'playing') this.processNext(); });
                         audio.addEventListener('error', () => { URL.revokeObjectURL(url); scheduleReadingTimer(); });
-                        audio.play().catch(() => { URL.revokeObjectURL(url); scheduleReadingTimer(); });
+                        audio.play().then(() => { this.callbacks.onAudioStart?.(); }).catch(() => { URL.revokeObjectURL(url); scheduleReadingTimer(); });
                         return; // audio.onended will call processNext
                       }
                     }
