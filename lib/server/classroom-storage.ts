@@ -55,12 +55,15 @@ export interface PersistedClassroomData {
   updatedAt?: string;
 }
 
-/** Lightweight list item (no scenes/agents payload) */
+/** Lightweight list item (no full scenes/agents payload) */
 export interface ClassroomListItem {
   id: string;
   name: string;
   description?: string;
   sceneCount: number;
+  firstSceneTitle?: string;
+  /** First slide canvas data for thumbnail preview */
+  firstSlide?: unknown;
   createdAt: string;
   updatedAt?: string;
 }
@@ -93,11 +96,20 @@ export async function listClassrooms(): Promise<ClassroomListItem[]> {
     try {
       const content = await fs.readFile(path.join(CLASSROOMS_DIR, file), 'utf-8');
       const data = JSON.parse(content) as PersistedClassroomData;
+      // Extract first slide canvas for thumbnail
+      const firstSlideScene = data.scenes?.find(
+        (s) => s.content && (s.content as { type?: string }).type === 'slide',
+      );
+      const firstSlide = firstSlideScene
+        ? (firstSlideScene.content as { canvas?: unknown })?.canvas
+        : undefined;
       items.push({
         id: data.id,
         name: data.stage?.name || 'Untitled',
         description: data.stage?.description,
         sceneCount: data.scenes?.length || 0,
+        firstSceneTitle: data.scenes?.[0]?.title,
+        firstSlide,
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
       });

@@ -156,20 +156,26 @@ function HomePage() {
 
       // Load from server (shared across all visitors)
       let serverList: StageListItem[] = [];
+      const serverThumbnails: Record<string, Slide> = {};
       try {
         const res = await fetch('/api/classrooms');
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.classrooms) {
             serverList = json.classrooms.map(
-              (c: { id: string; name: string; description?: string; sceneCount: number; createdAt: string; updatedAt?: string }) => ({
-                id: c.id,
-                name: c.name,
-                description: c.description,
-                sceneCount: c.sceneCount,
-                createdAt: new Date(c.updatedAt || c.createdAt).getTime(),
-                updatedAt: new Date(c.updatedAt || c.createdAt).getTime(),
-              }),
+              (c: { id: string; name: string; description?: string; sceneCount: number; firstSceneTitle?: string; firstSlide?: Slide; createdAt: string; updatedAt?: string }) => {
+                // Collect server thumbnails
+                if (c.firstSlide) serverThumbnails[c.id] = c.firstSlide;
+                return {
+                  id: c.id,
+                  name: c.name,
+                  description: c.description,
+                  sceneCount: c.sceneCount,
+                  firstSceneTitle: c.firstSceneTitle,
+                  createdAt: new Date(c.updatedAt || c.createdAt).getTime(),
+                  updatedAt: new Date(c.updatedAt || c.createdAt).getTime(),
+                };
+              },
             );
           }
         }
@@ -187,11 +193,11 @@ function HomePage() {
       merged.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
 
       setClassrooms(merged);
-      // Load first slide thumbnails (only for local ones — server ones don't have IndexedDB data)
-      if (localList.length > 0) {
-        const slides = await getFirstSlideByStages(localList.map((c) => c.id));
-        setThumbnails(slides);
-      }
+      // Load thumbnails: local from IndexedDB, server from API response
+      const localSlides = localList.length > 0
+        ? await getFirstSlideByStages(localList.map((c) => c.id))
+        : {};
+      setThumbnails({ ...serverThumbnails, ...localSlides });
     } catch (err) {
       log.error('Failed to load classrooms:', err);
     }
