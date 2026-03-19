@@ -26,8 +26,26 @@ export default function ClassroomDetailPage() {
   const generationStartedRef = useRef(false);
 
   const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({
-    onComplete: () => {
+    onComplete: async () => {
       log.info('[Classroom] All scenes generated');
+      // Ensure final state with all scenes is on the server
+      const { flushSync } = await import('@/lib/utils/server-sync');
+      const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
+      const state = useStageStore.getState();
+      if (state.stage) {
+        const agents = useAgentRegistry.getState().listAgents()
+          .filter((a) => a.isGenerated && a.boundStageId === state.stage!.id)
+          .map((a) => ({
+            id: a.id, name: a.name, role: a.role, persona: a.persona || '',
+            avatar: a.avatar || '', color: a.color || '', priority: a.priority || 5,
+            voiceId: a.voiceId,
+          }));
+        flushSync({
+          stage: state.stage,
+          scenes: state.scenes,
+          agents: agents.length > 0 ? agents : undefined,
+        });
+      }
     },
   });
 

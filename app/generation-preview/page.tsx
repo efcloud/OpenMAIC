@@ -724,6 +724,25 @@ function GenerationPreviewContent() {
 
       sessionStorage.removeItem('generationSession');
       await store.saveToStorage();
+
+      // Ensure classroom is on the server before navigating (so colleagues can see it)
+      const { flushSync } = await import('@/lib/utils/server-sync');
+      const { useAgentRegistry: agentReg } = await import('@/lib/orchestration/registry/store');
+      const generatedAgents = agentReg
+        .getState()
+        .listAgents()
+        .filter((a) => a.isGenerated && a.boundStageId === stage.id)
+        .map((a) => ({
+          id: a.id, name: a.name, role: a.role, persona: a.persona || '',
+          avatar: a.avatar || '', color: a.color || '', priority: a.priority || 5,
+          voiceId: a.voiceId,
+        }));
+      await flushSync({
+        stage,
+        scenes: store.scenes,
+        agents: generatedAgents.length > 0 ? generatedAgents : undefined,
+      });
+
       router.push(`/classroom/${stage.id}`);
     } catch (err) {
       // AbortError is expected when navigating away — don't show as error
