@@ -203,7 +203,7 @@ export class ActionEngine {
     // Server-side TTS: call API directly and play audio
     try {
       const providerConfig = settings.ttsProvidersConfig?.[providerId];
-      const voice = providerConfig?.voice || 'Aiden';
+      const voice = settings.ttsVoice || 'Aiden';
 
       const response = await fetch('/api/generate/tts', {
         method: 'POST',

@@ -447,7 +447,7 @@ export class PlaybackEngine {
                 if (!settings.ttsMuted && providerId !== 'browser-native-tts') {
                   try {
                     const providerConfig = settings.ttsProvidersConfig?.[providerId];
-                    const voice = providerConfig?.voice || 'Aiden';
+                    const voice = settings.ttsVoice || 'Aiden';
                     const res = await fetch('/api/generate/tts', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
