@@ -163,6 +163,7 @@ export interface GeneratedAgentRecord {
   avatar: string;
   color: string;
   priority: number;
+  voiceId?: string; // TTS voice ID (e.g. 'Aiden', 'Cherry')
   createdAt: number;
 }
 

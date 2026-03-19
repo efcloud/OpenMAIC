@@ -357,6 +357,20 @@ export async function loadGeneratedAgentsForStage(stageId: string): Promise<stri
   return ids;
 }
 
+// Voice pools for generated agents (teacher always gets Aiden to match default)
+const VOICE_POOL_FEMALE = ['Serena', 'Cherry', 'Vivian', 'Chelsie', 'Mia'];
+const VOICE_POOL_MALE = ['Pip', 'Ethan', 'Kai', 'Neil', 'Mochi'];
+
+/** Assign a deterministic voice based on agentId hash and role */
+function assignVoiceId(agentId: string, role: string): string {
+  if (role === 'teacher') return 'Aiden';
+  const hash = Array.from(agentId).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+  const absHash = Math.abs(hash);
+  return absHash % 2 === 0
+    ? VOICE_POOL_FEMALE[absHash % VOICE_POOL_FEMALE.length]
+    : VOICE_POOL_MALE[absHash % VOICE_POOL_MALE.length];
+}
+
 /**
  * Save generated agents to IndexedDB and registry.
  * Clears old generated agents for this stage first.
@@ -384,10 +398,11 @@ export async function saveGeneratedAgents(
     if (agent.isGenerated) registry.deleteAgent(agent.id);
   }
 
-  // Write to IndexedDB
+  // Write to IndexedDB (assign voiceId so TTS is consistent everywhere)
   const records = agents.map((a) => ({
     ...a,
     avatar: a.role === 'teacher' ? TEACHER_AVATAR : a.avatar,
+    voiceId: assignVoiceId(a.id, a.role),
     stageId,
     createdAt: Date.now(),
   }));

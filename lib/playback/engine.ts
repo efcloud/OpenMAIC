@@ -40,6 +40,7 @@ import { ActionEngine } from '@/lib/action/engine';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { createLogger } from '@/lib/logger';
 import { useSettingsStore } from '@/lib/store/settings';
+import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 
 const log = createLogger('PlaybackEngine');
 
@@ -452,7 +453,15 @@ export class PlaybackEngine {
                 if (!settings.ttsMuted && providerId !== 'browser-native-tts') {
                   try {
                     const providerConfig = settings.ttsProvidersConfig?.[providerId];
-                    const voice = settings.ttsVoice || 'Aiden';
+                    // Resolve voice: agentId → agent.voiceId → teacher.voiceId → global
+                    let voice = settings.ttsVoice || 'Aiden';
+                    if (speechAction.agentId) {
+                      const agent = useAgentRegistry.getState().getAgent(speechAction.agentId);
+                      if (agent?.voiceId) voice = agent.voiceId;
+                    } else {
+                      const teacher = useAgentRegistry.getState().listAgents().find((a) => a.role === 'teacher');
+                      if (teacher?.voiceId) voice = teacher.voiceId;
+                    }
                     const res = await fetch('/api/generate/tts', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },

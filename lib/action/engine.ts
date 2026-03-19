@@ -15,6 +15,7 @@ import { useCanvasStore } from '@/lib/store/canvas';
 import { useMediaGenerationStore, isMediaPlaceholder } from '@/lib/store/media-generation';
 import type { AudioPlayer } from '@/lib/utils/audio-player';
 import { useSettingsStore } from '@/lib/store/settings';
+import { useAgentRegistry } from '@/lib/orchestration/registry/store';
 import type {
   Action,
   SpotlightAction,
@@ -203,7 +204,15 @@ export class ActionEngine {
     // Server-side TTS: call API directly and play audio
     try {
       const providerConfig = settings.ttsProvidersConfig?.[providerId];
-      const voice = settings.ttsVoice || 'Aiden';
+      // Resolve voice: agentId → agent.voiceId → teacher.voiceId → global
+      let voice = settings.ttsVoice || 'Aiden';
+      if (action.agentId) {
+        const agent = useAgentRegistry.getState().getAgent(action.agentId);
+        if (agent?.voiceId) voice = agent.voiceId;
+      } else {
+        const teacher = useAgentRegistry.getState().listAgents().find((a) => a.role === 'teacher');
+        if (teacher?.voiceId) voice = teacher.voiceId;
+      }
 
       const response = await fetch('/api/generate/tts', {
         method: 'POST',

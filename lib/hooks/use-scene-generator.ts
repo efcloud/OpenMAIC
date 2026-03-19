@@ -216,7 +216,7 @@ export async function generateAndStoreTTS(
   // If browser has native TTS selected, check if server has a real TTS provider configured
   // (e.g. user accessing via Cloudflare tunnel where localStorage is fresh)
   let effectiveTtsProviderId = settings.ttsProviderId;
-  let effectiveTtsVoice = settings.ttsVoice;
+  let effectiveTtsVoice = voiceOverride || settings.ttsVoice;
   if (effectiveTtsProviderId === 'browser-native-tts') {
     try {
       const serverRes = await fetch('/api/server-providers');
