@@ -232,6 +232,9 @@ export function Stage({
 
   // Initialize playback engine when scene changes
   useEffect(() => {
+    // Set classroomId on audio player for server-side audio fallback
+    audioPlayerRef.current.setClassroomId(useStageStore.getState().stage?.id || null);
+
     // Bump epoch so any stale SSE callbacks from the previous scene are discarded
     sceneEpochRef.current++;
 

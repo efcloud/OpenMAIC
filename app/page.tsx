@@ -151,11 +151,45 @@ function HomePage() {
 
   const loadClassrooms = async () => {
     try {
-      const list = await listStages();
-      setClassrooms(list);
-      // Load first slide thumbnails
-      if (list.length > 0) {
-        const slides = await getFirstSlideByStages(list.map((c) => c.id));
+      // Load from IndexedDB (local)
+      const localList = await listStages();
+
+      // Load from server (shared across all visitors)
+      let serverList: StageListItem[] = [];
+      try {
+        const res = await fetch('/api/classrooms');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.classrooms) {
+            serverList = json.classrooms.map(
+              (c: { id: string; name: string; description?: string; sceneCount: number; createdAt: string; updatedAt?: string }) => ({
+                id: c.id,
+                name: c.name,
+                description: c.description,
+                sceneCount: c.sceneCount,
+                createdAt: new Date(c.updatedAt || c.createdAt).getTime(),
+                updatedAt: new Date(c.updatedAt || c.createdAt).getTime(),
+              }),
+            );
+          }
+        }
+      } catch {
+        // Server unavailable — local only
+      }
+
+      // Merge: local takes priority (has thumbnails), server fills gaps
+      const localIds = new Set(localList.map((c) => c.id));
+      const merged = [
+        ...localList,
+        ...serverList.filter((c) => !localIds.has(c.id)),
+      ];
+      // Sort by most recent
+      merged.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+
+      setClassrooms(merged);
+      // Load first slide thumbnails (only for local ones — server ones don't have IndexedDB data)
+      if (localList.length > 0) {
+        const slides = await getFirstSlideByStages(localList.map((c) => c.id));
         setThumbnails(slides);
       }
     } catch (err) {

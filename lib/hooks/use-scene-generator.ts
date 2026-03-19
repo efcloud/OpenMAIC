@@ -278,6 +278,26 @@ export async function generateAndStoreTTS(
     format: data.format,
     createdAt: Date.now(),
   });
+
+  // Mirror audio to server (fire-and-forget)
+  try {
+    const { useStageStore } = await import('@/lib/store/stage');
+    const stageId = useStageStore.getState().stage?.id;
+    if (stageId) {
+      fetch('/api/classroom/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          classroomId: stageId,
+          audioId,
+          base64: data.base64,
+          format: data.format,
+        }),
+      }).catch(() => {});
+    }
+  } catch {
+    // Non-critical — server audio is optional
+  }
 }
 
 /** Generate TTS for all speech actions in a scene. Returns result. */

@@ -6,12 +6,13 @@ import {
   isValidClassroomId,
   persistClassroom,
   readClassroom,
+  deleteClassroom,
 } from '@/lib/server/classroom-storage';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { stage, scenes } = body;
+    const { stage, scenes, agents } = body;
 
     if (!stage || !scenes) {
       return apiError(
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
     const id = stage.id || randomUUID();
     const baseUrl = buildRequestOrigin(request);
 
-    const persisted = await persistClassroom({ id, stage: { ...stage, id }, scenes }, baseUrl);
+    const persisted = await persistClassroom(
+      { id, stage: { ...stage, id }, scenes, agents },
+      baseUrl,
+    );
 
     return apiSuccess({ id: persisted.id, url: persisted.url }, 201);
   } catch (error) {
@@ -32,6 +36,24 @@ export async function POST(request: NextRequest) {
       API_ERROR_CODES.INTERNAL_ERROR,
       500,
       'Failed to store classroom',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const id = request.nextUrl.searchParams.get('id');
+    if (!id || !isValidClassroomId(id)) {
+      return apiError(API_ERROR_CODES.INVALID_REQUEST, 400, 'Invalid classroom id');
+    }
+    await deleteClassroom(id);
+    return apiSuccess({ deleted: true });
+  } catch (error) {
+    return apiError(
+      API_ERROR_CODES.INTERNAL_ERROR,
+      500,
+      'Failed to delete classroom',
       error instanceof Error ? error.message : String(error),
     );
   }

@@ -26,10 +26,45 @@ export class AudioPlayer {
    * @param audioId Audio ID
    * @returns true if audio started playing, false if no audio (TTS disabled or not generated)
    */
+  /** Set the classroom ID for server-side audio fallback */
+  public setClassroomId(classroomId: string | null): void {
+    this.classroomId = classroomId;
+  }
+
+  private classroomId: string | null = null;
+
   public async play(audioId: string): Promise<boolean> {
     try {
       // Get audio from database
-      const audioRecord = await db.audioFiles.get(audioId);
+      let audioRecord = await db.audioFiles.get(audioId);
+
+      // Fallback: try server-side audio storage
+      if (!audioRecord && this.classroomId) {
+        try {
+          const res = await fetch(
+            `/api/classroom/audio?classroomId=${encodeURIComponent(this.classroomId)}&audioId=${encodeURIComponent(audioId)}`,
+          );
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && json.base64) {
+              const binary = atob(json.base64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: `audio/${json.format}` });
+              // Cache in IndexedDB for next time
+              await db.audioFiles.put({
+                id: audioId,
+                blob,
+                format: json.format,
+                createdAt: Date.now(),
+              });
+              audioRecord = { id: audioId, blob, format: json.format, createdAt: Date.now() };
+            }
+          }
+        } catch {
+          // Server audio unavailable
+        }
+      }
 
       if (!audioRecord) {
         // Pre-generated audio does not exist (generation failed), skip silently
