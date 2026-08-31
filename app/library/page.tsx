@@ -16,7 +16,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
-import { listStages, getFirstSlideByStages, type StageListItem } from '@/lib/utils/stage-storage';
+import { type StageListItem } from '@/lib/utils/stage-storage';
+import { loadMergedClassrooms } from '@/lib/utils/classroom-list';
 import { CourseCard } from '@/components/library/course-card';
 import { flattenLessons } from '@/lib/utils/course-tree-ops';
 import type { Slide } from '@/lib/types/slides';
@@ -37,14 +38,11 @@ export default function LibraryPage() {
 
   useEffect(() => {
     useCourseLibraryStore.getState().loadTrees();
-    listStages()
-      .then(async (list) => {
+    loadMergedClassrooms()
+      .then(({ list, thumbnails }) => {
         setStages(list);
+        setThumbnails(thumbnails);
         setStagesLoaded(true);
-        if (list.length > 0) {
-          const slides = await getFirstSlideByStages(list.map((s) => s.id));
-          setThumbnails(slides);
-        }
       })
       .catch((err) => {
         log.error('Failed to load stages:', err);

@@ -34,12 +34,11 @@ import { storePdfBlob } from '@/lib/utils/image-storage';
 import type { UserRequirements } from '@/lib/types/generation';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useUserProfileStore, AVATAR_OPTIONS } from '@/lib/store/user-profile';
+import { StageListItem } from '@/lib/utils/stage-storage';
 import {
-  StageListItem,
-  listStages,
-  deleteStageData,
-  getFirstSlideByStages,
-} from '@/lib/utils/stage-storage';
+  loadMergedClassrooms,
+  deleteClassroomEverywhere,
+} from '@/lib/utils/classroom-list';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { Slide } from '@/lib/types/slides';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
@@ -151,53 +150,9 @@ function HomePage() {
 
   const loadClassrooms = async () => {
     try {
-      // Load from IndexedDB (local)
-      const localList = await listStages();
-
-      // Load from server (shared across all visitors)
-      let serverList: StageListItem[] = [];
-      const serverThumbnails: Record<string, Slide> = {};
-      try {
-        const res = await fetch('/api/classrooms');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.success && json.classrooms) {
-            serverList = json.classrooms.map(
-              (c: { id: string; name: string; description?: string; sceneCount: number; firstSceneTitle?: string; firstSlide?: Slide; createdAt: string; updatedAt?: string }) => {
-                // Collect server thumbnails
-                if (c.firstSlide) serverThumbnails[c.id] = c.firstSlide;
-                return {
-                  id: c.id,
-                  name: c.name,
-                  description: c.description,
-                  sceneCount: c.sceneCount,
-                  firstSceneTitle: c.firstSceneTitle,
-                  createdAt: new Date(c.updatedAt || c.createdAt).getTime(),
-                  updatedAt: new Date(c.updatedAt || c.createdAt).getTime(),
-                };
-              },
-            );
-          }
-        }
-      } catch {
-        // Server unavailable — local only
-      }
-
-      // Merge: local takes priority (has thumbnails), server fills gaps
-      const localIds = new Set(localList.map((c) => c.id));
-      const merged = [
-        ...localList,
-        ...serverList.filter((c) => !localIds.has(c.id)),
-      ];
-      // Sort by most recent
-      merged.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
-
-      setClassrooms(merged);
-      // Load thumbnails: local from IndexedDB, server from API response
-      const localSlides = localList.length > 0
-        ? await getFirstSlideByStages(localList.map((c) => c.id))
-        : {};
-      setThumbnails({ ...serverThumbnails, ...localSlides });
+      const { list, thumbnails } = await loadMergedClassrooms();
+      setClassrooms(list);
+      setThumbnails(thumbnails);
     } catch (err) {
       log.error('Failed to load classrooms:', err);
     }
@@ -222,7 +177,7 @@ function HomePage() {
   const confirmDelete = async (id: string) => {
     setPendingDeleteId(null);
     try {
-      await deleteStageData(id);
+      await deleteClassroomEverywhere(id);
       await loadClassrooms();
     } catch (err) {
       log.error('Failed to delete classroom:', err);
