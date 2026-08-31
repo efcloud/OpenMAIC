@@ -13,6 +13,7 @@ import {
   useDroppable,
   useDraggable,
 } from '@dnd-kit/core';
+import { nanoid } from 'nanoid';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useCourseLibraryStore } from '@/lib/store/course-library';
@@ -111,7 +112,6 @@ export default function LibraryPage() {
       if (existing.some((l) => l.stageId === stageId)) return;
 
       const stage = stages.find((s) => s.id === stageId);
-      const { nanoid } = require('nanoid');
 
       useCourseLibraryStore.getState().addNode(treeId, targetTree.root.id, {
         id: nanoid(),
