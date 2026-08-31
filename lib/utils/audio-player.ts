@@ -32,8 +32,15 @@ export class AudioPlayer {
   }
 
   private classroomId: string | null = null;
+  /**
+   * Bumped by stop() and by each play(). Loading audio is asynchronous (IndexedDB,
+   * and a network fetch on the server fallback), so a play() that started before a
+   * scene change must not tear down or replace the audio that belongs to the new one.
+   */
+  private playbackGeneration = 0;
 
   public async play(audioId: string): Promise<boolean> {
+    const generation = ++this.playbackGeneration;
     try {
       // Get audio from database
       let audioRecord = await db.audioFiles.get(audioId);
@@ -71,8 +78,14 @@ export class AudioPlayer {
         return false;
       }
 
-      // Stop current playback
-      this.stop();
+      // A stop() or a newer play() landed while we were loading — this audio
+      // belongs to a scene that is no longer current, so abandon it quietly.
+      if (generation !== this.playbackGeneration) {
+        return false;
+      }
+
+      // Stop current playback (without invalidating this call)
+      this.teardown();
 
       // Create audio element
       this.audio = new Audio();
@@ -117,13 +130,20 @@ export class AudioPlayer {
    * Stop playback
    */
   public stop(): void {
+    // Invalidate any play() still waiting on IndexedDB or the server fallback
+    this.playbackGeneration++;
+    this.teardown();
+  }
+
+  /** Tear down the current element without invalidating in-flight play() calls */
+  private teardown(): void {
     if (this.audio) {
       this.audio.pause();
       this.audio.currentTime = 0;
       this.audio = null;
     }
     // Note: onEndedCallback intentionally NOT cleared here because play()
-    // calls stop() internally — clearing would break the callback chain.
+    // tears down internally — clearing would break the callback chain.
     // Stale callbacks are harmless: engine mode check prevents processNext().
   }
 

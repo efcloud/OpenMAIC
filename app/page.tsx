@@ -87,7 +87,6 @@ function HomePage() {
   const [recentOpen, setRecentOpen] = useState(true);
 
   // Hydrate client-only state after mount (avoids SSR mismatch)
-  /* eslint-disable react-hooks/set-state-in-effect -- Hydration from localStorage must happen in effect */
   useEffect(() => {
     setStoreHydrated(true);
     try {
@@ -114,7 +113,6 @@ function HomePage() {
       /* localStorage unavailable */
     }
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Restore requirement draft from cache (derived state pattern — no effect needed)
   const [prevCachedRequirement, setPrevCachedRequirement] = useState(cachedRequirement);
@@ -165,7 +163,6 @@ function HomePage() {
     useMediaGenerationStore.getState().revokeObjectUrls();
     useMediaGenerationStore.setState({ tasks: {} });
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Store hydration on mount
     loadClassrooms();
   }, []);
 
@@ -178,10 +175,12 @@ function HomePage() {
     setPendingDeleteId(null);
     try {
       await deleteClassroomEverywhere(id);
-      await loadClassrooms();
     } catch (err) {
       log.error('Failed to delete classroom:', err);
       toast.error('Failed to delete classroom');
+    } finally {
+      // Refresh either way, so the list reflects what actually survived
+      await loadClassrooms();
     }
   };
 

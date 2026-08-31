@@ -40,7 +40,7 @@ export default function ClassroomDetailPage() {
             avatar: a.avatar || '', color: a.color || '', priority: a.priority || 5,
             voiceId: a.voiceId,
           }));
-        flushSync({
+        await flushSync({
           stage: state.stage,
           scenes: state.scenes,
           agents: agents.length > 0 ? agents : undefined,
@@ -53,9 +53,12 @@ export default function ClassroomDetailPage() {
     try {
       await loadFromStorage(classroomId);
 
-      // If IndexedDB had no data, try server-side storage (API-generated classrooms)
+      // If IndexedDB had no data for THIS classroom, try server-side storage
+      // (API-generated classrooms). loadFromStorage leaves the previous stage in
+      // the store when it finds nothing, so an id check is required here — a bare
+      // null check would render the previous classroom under this one's URL.
       let loadedFromServer = false;
-      if (!useStageStore.getState().stage) {
+      if (useStageStore.getState().stage?.id !== classroomId) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
         try {
           const res = await fetch(`/api/classroom?id=${encodeURIComponent(classroomId)}`);
@@ -87,6 +90,13 @@ export default function ClassroomDetailPage() {
           }
         } catch (fetchErr) {
           log.warn('Server-side storage fetch failed:', fetchErr);
+        }
+
+        // Neither source had this classroom. Drop whatever the store still holds
+        // so a previous classroom is never shown under this URL.
+        if (!loadedFromServer && useStageStore.getState().stage?.id !== classroomId) {
+          useStageStore.setState({ stage: null, scenes: [], currentSceneId: null });
+          throw new Error('Classroom not found');
         }
       }
 

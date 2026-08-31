@@ -739,7 +739,8 @@ function GenerationPreviewContent() {
         }));
       await flushSync({
         stage,
-        scenes: store.scenes,
+        // Read fresh: `store` is a snapshot taken before addScene() above
+        scenes: useStageStore.getState().scenes,
         agents: generatedAgents.length > 0 ? generatedAgents : undefined,
       });
 

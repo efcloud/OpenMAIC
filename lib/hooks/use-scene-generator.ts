@@ -210,6 +210,8 @@ export async function generateAndStoreTTS(
   text: string,
   signal?: AbortSignal,
   voiceOverride?: string,
+  /** Classroom to mirror the audio into, captured before generation started */
+  classroomId?: string | null,
 ): Promise<void> {
   const settings = useSettingsStore.getState();
 
@@ -279,16 +281,16 @@ export async function generateAndStoreTTS(
     createdAt: Date.now(),
   });
 
-  // Mirror audio to server (fire-and-forget)
+  // Mirror audio to server (fire-and-forget). Uses the classroom captured by the
+  // caller, not the current store — the user may have switched classrooms while
+  // this request was in flight.
   try {
-    const { useStageStore } = await import('@/lib/store/stage');
-    const stageId = useStageStore.getState().stage?.id;
-    if (stageId) {
+    if (classroomId) {
       fetch('/api/classroom/audio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          classroomId: stageId,
+          classroomId,
           audioId,
           base64: data.base64,
           format: data.format,
@@ -306,6 +308,9 @@ export async function generateTTSForScene(
   signal?: AbortSignal,
 ): Promise<{ success: boolean; failedCount: number; error?: string }> {
   const providerId = useSettingsStore.getState().ttsProviderId;
+  // Captured up front: the store can change classrooms while TTS is generating
+  const { useStageStore } = await import('@/lib/store/stage');
+  const classroomId = useStageStore.getState().stage?.id ?? null;
   scene.actions = splitLongSpeechActions(scene.actions || [], providerId);
   const speechActions = scene.actions.filter(
     (a): a is SpeechAction => a.type === 'speech' && !!a.text,
@@ -332,7 +337,7 @@ export async function generateTTSForScene(
         const teacher = useAgentRegistry.getState().listAgents().find((a) => a.role === 'teacher');
         voiceOverride = teacher?.voiceId;
       }
-      await generateAndStoreTTS(audioId, action.text, signal, voiceOverride);
+      await generateAndStoreTTS(audioId, action.text, signal, voiceOverride, classroomId);
     } catch (error) {
       failedCount++;
       lastError = error instanceof Error ? error.message : `TTS failed for action ${action.id}`;

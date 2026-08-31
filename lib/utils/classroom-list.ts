@@ -46,15 +46,14 @@ export async function loadMergedClassrooms(): Promise<MergedClassrooms> {
       if (json.success && json.classrooms) {
         serverList = (json.classrooms as ServerClassroom[]).map((c) => {
           if (c.firstSlide) serverThumbnails[c.id] = c.firstSlide;
-          const ts = new Date(c.updatedAt || c.createdAt).getTime();
           return {
             id: c.id,
             name: c.name,
             description: c.description,
             sceneCount: c.sceneCount,
             firstSceneTitle: c.firstSceneTitle,
-            createdAt: ts,
-            updatedAt: ts,
+            createdAt: new Date(c.createdAt).getTime(),
+            updatedAt: new Date(c.updatedAt || c.createdAt).getTime(),
           };
         });
       }
@@ -75,14 +74,22 @@ export async function loadMergedClassrooms(): Promise<MergedClassrooms> {
 
 /**
  * Delete a classroom from both IndexedDB and server storage.
- * Without the server delete the classroom reappears on the next list refresh.
+ * Without the server delete the classroom reappears on the next list refresh,
+ * so a server failure throws rather than reporting a deletion that did not
+ * happen — the local cache is still cleared either way.
  */
 export async function deleteClassroomEverywhere(id: string): Promise<void> {
   await deleteStageData(id);
+
+  let res: Response;
   try {
-    const res = await fetch(`/api/classroom?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!res.ok) log.warn('Server delete failed:', res.status);
+    res = await fetch(`/api/classroom?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   } catch (err) {
-    log.warn('Server delete error:', err);
+    log.error('Server delete error:', err);
+    throw new Error(`Could not reach the server to delete classroom ${id}`);
+  }
+  if (!res.ok) {
+    log.error('Server delete failed:', res.status);
+    throw new Error(`Server refused to delete classroom ${id} (HTTP ${res.status})`);
   }
 }
