@@ -72,6 +72,22 @@ export function isValidClassroomId(id: string): boolean {
   return /^[a-zA-Z0-9_-]+$/.test(id);
 }
 
+/**
+ * Audio ids are generated action ids (e.g. tts_action_69HFKo_9) — same safe
+ * charset as classroom ids. Anything else could escape the audio directory,
+ * since the id becomes a path segment.
+ */
+export function isValidAudioId(id: string): boolean {
+  return /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
+/** Extensions accepted for persisted TTS audio (providers return wav or mp3) */
+const AUDIO_FORMATS = new Set(['wav', 'mp3', 'ogg', 'webm', 'm4a', 'aac', 'opus', 'pcm']);
+
+export function isValidAudioFormat(format: string): boolean {
+  return AUDIO_FORMATS.has(format.toLowerCase());
+}
+
 export async function readClassroom(id: string): Promise<PersistedClassroomData | null> {
   const filePath = path.join(CLASSROOMS_DIR, `${id}.json`);
   try {
@@ -185,9 +201,15 @@ export async function persistAudioFile(
   base64: string,
   format: string,
 ): Promise<void> {
+  // Validated here as well as at the route: every component below becomes a
+  // path segment, so an unchecked value is an arbitrary file write.
+  if (!isValidClassroomId(classroomId)) throw new Error('Invalid classroom id');
+  if (!isValidAudioId(audioId)) throw new Error('Invalid audio id');
+  if (!isValidAudioFormat(format)) throw new Error('Unsupported audio format');
+
   const audioDir = path.join(CLASSROOMS_DIR, classroomId, 'audio');
   await ensureDir(audioDir);
-  const filePath = path.join(audioDir, `${audioId}.${format}`);
+  const filePath = path.join(audioDir, `${audioId}.${format.toLowerCase()}`);
   await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
 }
 
@@ -196,6 +218,8 @@ export async function readAudioFile(
   classroomId: string,
   audioId: string,
 ): Promise<{ base64: string; format: string } | null> {
+  if (!isValidClassroomId(classroomId) || !isValidAudioId(audioId)) return null;
+
   const audioDir = path.join(CLASSROOMS_DIR, classroomId, 'audio');
   try {
     const files = await fs.readdir(audioDir);
