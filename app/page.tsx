@@ -34,12 +34,11 @@ import { storePdfBlob } from '@/lib/utils/image-storage';
 import type { UserRequirements } from '@/lib/types/generation';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useUserProfileStore, AVATAR_OPTIONS } from '@/lib/store/user-profile';
+import { StageListItem } from '@/lib/utils/stage-storage';
 import {
-  StageListItem,
-  listStages,
-  deleteStageData,
-  getFirstSlideByStages,
-} from '@/lib/utils/stage-storage';
+  loadMergedClassrooms,
+  deleteClassroomEverywhere,
+} from '@/lib/utils/classroom-list';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { Slide } from '@/lib/types/slides';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
@@ -88,7 +87,6 @@ function HomePage() {
   const [recentOpen, setRecentOpen] = useState(true);
 
   // Hydrate client-only state after mount (avoids SSR mismatch)
-  /* eslint-disable react-hooks/set-state-in-effect -- Hydration from localStorage must happen in effect */
   useEffect(() => {
     setStoreHydrated(true);
     try {
@@ -115,7 +113,6 @@ function HomePage() {
       /* localStorage unavailable */
     }
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Restore requirement draft from cache (derived state pattern — no effect needed)
   const [prevCachedRequirement, setPrevCachedRequirement] = useState(cachedRequirement);
@@ -151,13 +148,9 @@ function HomePage() {
 
   const loadClassrooms = async () => {
     try {
-      const list = await listStages();
+      const { list, thumbnails } = await loadMergedClassrooms();
       setClassrooms(list);
-      // Load first slide thumbnails
-      if (list.length > 0) {
-        const slides = await getFirstSlideByStages(list.map((c) => c.id));
-        setThumbnails(slides);
-      }
+      setThumbnails(thumbnails);
     } catch (err) {
       log.error('Failed to load classrooms:', err);
     }
@@ -170,7 +163,6 @@ function HomePage() {
     useMediaGenerationStore.getState().revokeObjectUrls();
     useMediaGenerationStore.setState({ tasks: {} });
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Store hydration on mount
     loadClassrooms();
   }, []);
 
@@ -182,11 +174,13 @@ function HomePage() {
   const confirmDelete = async (id: string) => {
     setPendingDeleteId(null);
     try {
-      await deleteStageData(id);
-      await loadClassrooms();
+      await deleteClassroomEverywhere(id);
     } catch (err) {
       log.error('Failed to delete classroom:', err);
       toast.error('Failed to delete classroom');
+    } finally {
+      // Refresh either way, so the list reflects what actually survived
+      await loadClassrooms();
     }
   };
 

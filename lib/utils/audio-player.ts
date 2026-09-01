@@ -26,18 +26,66 @@ export class AudioPlayer {
    * @param audioId Audio ID
    * @returns true if audio started playing, false if no audio (TTS disabled or not generated)
    */
+  /** Set the classroom ID for server-side audio fallback */
+  public setClassroomId(classroomId: string | null): void {
+    this.classroomId = classroomId;
+  }
+
+  private classroomId: string | null = null;
+  /**
+   * Bumped by stop() and by each play(). Loading audio is asynchronous (IndexedDB,
+   * and a network fetch on the server fallback), so a play() that started before a
+   * scene change must not tear down or replace the audio that belongs to the new one.
+   */
+  private playbackGeneration = 0;
+
   public async play(audioId: string): Promise<boolean> {
+    const generation = ++this.playbackGeneration;
     try {
       // Get audio from database
-      const audioRecord = await db.audioFiles.get(audioId);
+      let audioRecord = await db.audioFiles.get(audioId);
+
+      // Fallback: try server-side audio storage
+      if (!audioRecord && this.classroomId) {
+        try {
+          const res = await fetch(
+            `/api/classroom/audio?classroomId=${encodeURIComponent(this.classroomId)}&audioId=${encodeURIComponent(audioId)}`,
+          );
+          if (res.ok) {
+            const json = await res.json();
+            if (json.success && json.base64) {
+              const binary = atob(json.base64);
+              const bytes = new Uint8Array(binary.length);
+              for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+              const blob = new Blob([bytes], { type: `audio/${json.format}` });
+              // Cache in IndexedDB for next time
+              await db.audioFiles.put({
+                id: audioId,
+                blob,
+                format: json.format,
+                createdAt: Date.now(),
+              });
+              audioRecord = { id: audioId, blob, format: json.format, createdAt: Date.now() };
+            }
+          }
+        } catch {
+          // Server audio unavailable
+        }
+      }
 
       if (!audioRecord) {
         // Pre-generated audio does not exist (generation failed), skip silently
         return false;
       }
 
-      // Stop current playback
-      this.stop();
+      // A stop() or a newer play() landed while we were loading — this audio
+      // belongs to a scene that is no longer current, so abandon it quietly.
+      if (generation !== this.playbackGeneration) {
+        return false;
+      }
+
+      // Stop current playback (without invalidating this call)
+      this.teardown();
 
       // Create audio element
       this.audio = new Audio();
@@ -82,13 +130,20 @@ export class AudioPlayer {
    * Stop playback
    */
   public stop(): void {
+    // Invalidate any play() still waiting on IndexedDB or the server fallback
+    this.playbackGeneration++;
+    this.teardown();
+  }
+
+  /** Tear down the current element without invalidating in-flight play() calls */
+  private teardown(): void {
     if (this.audio) {
       this.audio.pause();
       this.audio.currentTime = 0;
       this.audio = null;
     }
     // Note: onEndedCallback intentionally NOT cleared here because play()
-    // calls stop() internally — clearing would break the callback chain.
+    // tears down internally — clearing would break the callback chain.
     // Stale callbacks are harmless: engine mode check prevents processNext().
   }
 

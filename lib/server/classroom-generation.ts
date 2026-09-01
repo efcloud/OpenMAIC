@@ -257,7 +257,7 @@ export async function generateClassroom(
 
   return {
     id: persisted.id,
-    url: persisted.url,
+    url: persisted.url || `${options.baseUrl}/classroom/${persisted.id}`,
     stage,
     scenes,
     scenesCount: scenes.length,

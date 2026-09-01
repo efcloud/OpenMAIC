@@ -26,8 +26,26 @@ export default function ClassroomDetailPage() {
   const generationStartedRef = useRef(false);
 
   const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({
-    onComplete: () => {
+    onComplete: async () => {
       log.info('[Classroom] All scenes generated');
+      // Ensure final state with all scenes is on the server
+      const { flushSync } = await import('@/lib/utils/server-sync');
+      const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
+      const state = useStageStore.getState();
+      if (state.stage) {
+        const agents = useAgentRegistry.getState().listAgents()
+          .filter((a) => a.isGenerated && a.boundStageId === state.stage!.id)
+          .map((a) => ({
+            id: a.id, name: a.name, role: a.role, persona: a.persona || '',
+            avatar: a.avatar || '', color: a.color || '', priority: a.priority || 5,
+            voiceId: a.voiceId,
+          }));
+        await flushSync({
+          stage: state.stage,
+          scenes: state.scenes,
+          agents: agents.length > 0 ? agents : undefined,
+        });
+      }
     },
   });
 
@@ -35,36 +53,66 @@ export default function ClassroomDetailPage() {
     try {
       await loadFromStorage(classroomId);
 
-      // If IndexedDB had no data, try server-side storage (API-generated classrooms)
-      if (!useStageStore.getState().stage) {
+      // If IndexedDB had no data for THIS classroom, try server-side storage
+      // (API-generated classrooms). loadFromStorage leaves the previous stage in
+      // the store when it finds nothing, so an id check is required here — a bare
+      // null check would render the previous classroom under this one's URL.
+      let loadedFromServer = false;
+      if (useStageStore.getState().stage?.id !== classroomId) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
         try {
           const res = await fetch(`/api/classroom?id=${encodeURIComponent(classroomId)}`);
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
-              const { stage, scenes } = json.classroom;
+              const { stage, scenes, agents } = json.classroom;
               useStageStore.getState().setStage(stage);
               useStageStore.setState({
                 scenes,
                 currentSceneId: scenes[0]?.id ?? null,
               });
+              loadedFromServer = true;
               log.info('Loaded from server-side storage:', classroomId);
+
+              // Load agents from server data if present
+              if (agents && agents.length > 0) {
+                const { saveGeneratedAgents } = await import(
+                  '@/lib/orchestration/registry/store'
+                );
+                const agentIds = await saveGeneratedAgents(classroomId, agents);
+                const { useSettingsStore } = await import('@/lib/store/settings');
+                useSettingsStore.getState().setSelectedAgentIds(agentIds);
+              }
+
+              // Save to IndexedDB so subsequent visits don't need the server
+              await useStageStore.getState().saveToStorage();
             }
           }
         } catch (fetchErr) {
           log.warn('Server-side storage fetch failed:', fetchErr);
         }
+
+        // Neither source had this classroom. Drop whatever the store still holds
+        // so a previous classroom is never shown under this URL.
+        if (!loadedFromServer && useStageStore.getState().stage?.id !== classroomId) {
+          useStageStore.setState({ stage: null, scenes: [], currentSceneId: null });
+          throw new Error('Classroom not found');
+        }
       }
 
       // Restore completed media generation tasks from IndexedDB
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
-      // Restore generated agents for this stage
-      const { loadGeneratedAgentsForStage } = await import('@/lib/orchestration/registry/store');
-      const agentIds = await loadGeneratedAgentsForStage(classroomId);
-      if (agentIds.length > 0) {
-        const { useSettingsStore } = await import('@/lib/store/settings');
-        useSettingsStore.getState().setSelectedAgentIds(agentIds);
+
+      // Restore generated agents for this stage (skip if already loaded from server)
+      if (!loadedFromServer) {
+        const { loadGeneratedAgentsForStage } = await import(
+          '@/lib/orchestration/registry/store'
+        );
+        const agentIds = await loadGeneratedAgentsForStage(classroomId);
+        if (agentIds.length > 0) {
+          const { useSettingsStore } = await import('@/lib/store/settings');
+          useSettingsStore.getState().setSelectedAgentIds(agentIds);
+        }
       }
     } catch (error) {
       log.error('Failed to load classroom:', error);

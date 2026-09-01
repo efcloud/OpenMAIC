@@ -262,6 +262,25 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
         currentSceneId,
         chats,
       });
+
+      // Mirror to server-side storage (fire-and-forget, debounced)
+      const { syncToServer } = await import('@/lib/utils/server-sync');
+      const { useAgentRegistry } = await import('@/lib/orchestration/registry/store');
+      const agents = useAgentRegistry
+        .getState()
+        .listAgents()
+        .filter((a) => a.isGenerated && a.boundStageId === stage.id)
+        .map((a) => ({
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          persona: a.persona || '',
+          avatar: a.avatar || '',
+          color: a.color || '',
+          priority: a.priority || 5,
+          voiceId: a.voiceId,
+        }));
+      syncToServer({ stage, scenes, agents: agents.length > 0 ? agents : undefined });
     } catch (error) {
       log.error('Failed to save to storage:', error);
     }
